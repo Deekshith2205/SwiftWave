@@ -1,0 +1,97 @@
+# =============================================================================
+# NEXUS Share — .gitignore
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Rust
+# ---------------------------------------------------------------------------
+/target/
+core/*/target/
+packages/*/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# ---------------------------------------------------------------------------
+# Flutter / Dart
+# ---------------------------------------------------------------------------
+# Build outputs
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/pubspec.lock
+
+# Generated files
+**/*.g.dart
+**/*.freezed.dart
+**/*.mocks.dart
+**/generated_plugin_registrant.dart
+
+# ---------------------------------------------------------------------------
+# Android
+# ---------------------------------------------------------------------------
+**/android/.gradle/
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/*.iml
+**/android/key.properties
+**/android/app/google-services.json
+
+# ---------------------------------------------------------------------------
+# iOS / macOS
+# ---------------------------------------------------------------------------
+**/ios/.symlinks/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Pods/
+**/macos/.symlinks/
+**/macos/Pods/
+**/*.xcworkspace
+!**/*.xcodeproj/*.xcworkspace
+**/*.xcuserstate
+**/xcuserdata/
+
+# ---------------------------------------------------------------------------
+# Windows / Linux Desktop
+# ---------------------------------------------------------------------------
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/generated_plugin_registrant.h
+**/windows/flutter/generated_plugins.cmake
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/generated_plugin_registrant.h
+**/linux/flutter/generated_plugins.cmake
+
+# ---------------------------------------------------------------------------
+# IDEs
+# ---------------------------------------------------------------------------
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vs/
+
+# ---------------------------------------------------------------------------
+# OS
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ---------------------------------------------------------------------------
+# Logs & temp
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+*.swp
+*~

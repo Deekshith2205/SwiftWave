@@ -1,0 +1,43 @@
+name: swiftwave_app
+description: "SwiftWave - Privacy-first offline P2P file sharing"
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ---------------------------------------------------------------------------
+  # Navigation
+  # ---------------------------------------------------------------------------
+  go_router: ^14.0.0
+
+  # ---------------------------------------------------------------------------
+  # State management — compile-time safe, minimal overhead
+  # ---------------------------------------------------------------------------
+  flutter_riverpod: ^2.6.1
+
+  # ---------------------------------------------------------------------------
+  # Dart FFI — bridges to the Rust swiftwave_ffi cdylib
+  # TODO (Phase 2): add ffigen dev dependency to auto-generate bindings from swiftwave_ffi.h
+  # ---------------------------------------------------------------------------
+  ffi: ^2.1.4
+
+  # ---------------------------------------------------------------------------
+  # Typography — Inter font for modern look
+  # ---------------------------------------------------------------------------
+  google_fonts: ^6.2.1
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

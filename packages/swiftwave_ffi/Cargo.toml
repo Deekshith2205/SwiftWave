@@ -1,0 +1,21 @@
+[package]
+name = "swiftwave_ffi"
+version = "0.1.0"
+edition = "2021"
+description = "SwiftWave FFI bridge — C-ABI boundary for Dart FFI"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "swiftwave_ffi"
+# cdylib  → .so / .dll / .dylib loaded by Dart FFI at runtime
+# staticlib → .a / .lib for static linking (iOS / macOS app bundle)
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+swiftwave_core  = { path = "../../core/swiftwave_core" }
+tokio       = { workspace = true }
+tracing     = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+# cbindgen = "0.27"  # TODO (Phase 2): auto-generate swiftwave_ffi.h header
