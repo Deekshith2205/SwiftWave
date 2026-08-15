@@ -13,14 +13,38 @@ name = "swiftwave_core"
 crate-type = ["lib"]
 
 [dependencies]
-tokio       = { workspace = true }
-thiserror   = { workspace = true }
-tracing     = { workspace = true }
-serde       = { workspace = true }
-serde_json  = { workspace = true }
-uuid        = { workspace = true }
-async-trait = { workspace = true }
+tokio            = { workspace = true }
+thiserror        = { workspace = true }
+tracing          = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+uuid             = { workspace = true }
+async-trait      = { workspace = true }
+blake3           = { workspace = true }
+snow             = { workspace = true }
+chacha20poly1305 = { workspace = true }
+x25519-dalek     = { workspace = true }
+bytes            = { workspace = true }
+rand_core        = { workspace = true }
+bs58             = { workspace = true }
+quinn            = { workspace = true }
+rcgen            = { workspace = true }
+rustls           = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
+tokio              = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true }
+criterion          = { version = "0.5", features = ["async_tokio"] }
+tempfile           = "3"
+
+[[bench]]
+name = "blake3_bench"
+harness = false
+
+[[bench]]
+name = "chunking_bench"
+harness = false
+
+[[bench]]
+name = "io_bench"
+harness = false
