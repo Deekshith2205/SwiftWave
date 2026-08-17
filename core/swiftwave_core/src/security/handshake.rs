@@ -1,155 +1,233 @@
-//! Noise Protocol handshake for SwiftWave peer authentication.
-//!
-//! # Protocol: Noise_XX_25519_ChaChaPoly_BLAKE2s
-//!
-//! We use the **XX** pattern because:
-//! - Both initiator and responder are mutually authenticated.
-//! - Neither side needs prior knowledge of the other's static key
-//!   (unlike IK/NK patterns).
-//! - After the handshake, both peers have a shared secret and have
-//!   verified each other's long-term public keys.
+//! Noise Protocol handshake and HandshakeState for SwiftWave.
 //!
 //! # Security properties
-//! - **Mutual authentication** — both sides prove possession of their
-//!   static private key.
-//! - **Forward secrecy** — ephemeral keys are discarded after the handshake.
-//! - **Identity hiding** — static keys are transmitted encrypted inside the
-//!   handshake messages.
-//! - **No PKI** — trust is established out-of-band via the SAS (Short
-//!   Authentication String) that the user confirms on both devices.
-//!
-//! # Wire format
-//! Messages are framed as `[u16 length][payload]` over the underlying stream.
+//! - **Mutual authentication**: Proves possession of static X25519 keys.
+//! - **Forward secrecy**: Ephemeral keys are discarded after handshake.
+//! - **Identity hiding**: Static keys are transmitted encrypted.
 
-use snow::{Builder, TransportState};
+use snow::{Builder, HandshakeState as SnowHandshakeState};
 
 use crate::error::{Result, SwiftWaveError};
+use crate::security::session::SecureSession;
+use crate::device::identity::{PeerIdentity, PublicKeyFingerprint};
 
-/// Noise parameters used across SwiftWave.
-///
-/// `BLAKE2s` is used inside the Noise handshake (as specified by the `snow`
-/// crate's pattern string). BLAKE3 is used separately for file integrity.
 const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
-
-/// Maximum size of a single Noise handshake message (65535 bytes).
 const MAX_MESSAGE: usize = 65535;
 
-/// State after a completed Noise handshake.
-///
-/// Wraps the `snow` transport state which provides `read_message` /
-/// `write_message` for encrypted stream data post-handshake.
-pub struct HandshakeResult {
-    /// Established symmetric transport state.
-    pub transport: TransportState,
-    /// The remote peer's static public key (32 bytes, X25519).
-    ///
-    /// The caller MUST verify this against a known-trusted fingerprint
-    /// or prompt the user to confirm the SAS before using the transport.
-    pub remote_static_public_key: Vec<u8>,
+/// Represents an active, incomplete Noise handshake.
+pub struct HandshakeState {
+    state: SnowHandshakeState,
+    is_initiator: bool,
 }
 
-/// Perform the **initiator** side of a Noise XX handshake.
-///
-/// `local_static_key` must be the 32-byte X25519 private key of this device.
-/// `transport` is any `AsyncRead + AsyncWrite` stream (e.g., a QUIC stream).
-///
-/// Returns a `HandshakeResult` on success, or `HandshakeFailed` on any error.
-/// The opaque error prevents oracle attacks — never reveal why a handshake
-/// failed to the remote peer.
-pub async fn initiate_handshake(
-    local_static_key: &[u8; 32],
-    stream: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
-) -> Result<HandshakeResult> {
-    let builder = Builder::new(NOISE_PARAMS.parse().map_err(|_| SwiftWaveError::HandshakeFailed)?)
-        .local_private_key(local_static_key)
-        .build_initiator()
-        .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-
-    run_handshake(builder, stream, true).await
-}
-
-/// Perform the **responder** side of a Noise XX handshake.
-pub async fn respond_handshake(
-    local_static_key: &[u8; 32],
-    stream: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
-) -> Result<HandshakeResult> {
-    let builder = Builder::new(NOISE_PARAMS.parse().map_err(|_| SwiftWaveError::HandshakeFailed)?)
-        .local_private_key(local_static_key)
-        .build_responder()
-        .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-
-    run_handshake(builder, stream, false).await
-}
-
-/// Drive the Noise state machine to completion, reading and writing framed
-/// messages over `stream`.
-async fn run_handshake(
-    mut state: snow::HandshakeState,
-    stream: &mut (impl tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin),
-    initiator: bool,
-) -> Result<HandshakeResult> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    let mut buf = vec![0u8; MAX_MESSAGE];
-    let mut msg = vec![0u8; MAX_MESSAGE];
-
-    // XX pattern: initiator sends → responder replies → initiator sends
-    // Noise state machine tracks whose turn it is via `is_my_turn()`.
-    while !state.is_handshake_finished() {
-        if state.is_my_turn() {
-            // Write a handshake message.
-            let len = state
-                .write_message(&[], &mut msg)
-                .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-
-            // Frame as u16 big-endian length prefix.
-            let frame_len = (len as u16).to_be_bytes();
-            stream
-                .write_all(&frame_len)
-                .await
-                .map_err(SwiftWaveError::Io)?;
-            stream
-                .write_all(&msg[..len])
-                .await
-                .map_err(SwiftWaveError::Io)?;
-        } else {
-            // Read a framed handshake message.
-            let mut len_buf = [0u8; 2];
-            stream
-                .read_exact(&mut len_buf)
-                .await
-                .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-            let payload_len = u16::from_be_bytes(len_buf) as usize;
-
-            if payload_len > MAX_MESSAGE {
-                return Err(SwiftWaveError::HandshakeFailed);
-            }
-
-            stream
-                .read_exact(&mut buf[..payload_len])
-                .await
-                .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-
-            state
-                .read_message(&buf[..payload_len], &mut msg)
-                .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-        }
+impl HandshakeState {
+    /// Initialize a new handshake state as the initiator.
+    pub fn new_initiator(local_static_key: &[u8; 32]) -> Result<Self> {
+        let builder = Builder::new(NOISE_PARAMS.parse().unwrap())
+            .local_private_key(local_static_key)
+            .build_initiator()
+            .map_err(|_| SwiftWaveError::HandshakeFailed)?;
+        Ok(Self { state: builder, is_initiator: true })
     }
 
-    // Extract the remote static public key before converting to transport.
-    let remote_static_public_key = state
-        .get_remote_static()
-        .ok_or(SwiftWaveError::HandshakeFailed)?
-        .to_vec();
+    /// Initialize a new handshake state as the responder.
+    pub fn new_responder(local_static_key: &[u8; 32]) -> Result<Self> {
+        let builder = Builder::new(NOISE_PARAMS.parse().unwrap())
+            .local_private_key(local_static_key)
+            .build_responder()
+            .map_err(|_| SwiftWaveError::HandshakeFailed)?;
+        Ok(Self { state: builder, is_initiator: false })
+    }
 
-    let transport = state
-        .into_transport_mode()
-        .map_err(|_| SwiftWaveError::HandshakeFailed)?;
+    /// Read an incoming handshake message from the peer.
+    pub fn read_message(&mut self, payload: &[u8], out: &mut [u8]) -> Result<usize> {
+        if payload.len() > MAX_MESSAGE {
+            return Err(SwiftWaveError::HandshakeFailed);
+        }
+        self.state
+            .read_message(payload, out)
+            .map_err(|_| SwiftWaveError::HandshakeFailed)
+    }
 
-    let _ = initiator; // suppress unused warning; role is tracked by snow
+    /// Write the next outgoing handshake message.
+    pub fn write_message(&mut self, payload: &[u8], out: &mut [u8]) -> Result<usize> {
+        self.state
+            .write_message(payload, out)
+            .map_err(|_| SwiftWaveError::HandshakeFailed)
+    }
 
-    Ok(HandshakeResult {
-        transport,
-        remote_static_public_key,
-    })
+    /// Returns `true` if the handshake is complete.
+    pub fn is_finished(&self) -> bool {
+        self.state.is_handshake_finished()
+    }
+
+    /// Returns `true` if it is our turn to write a message.
+    pub fn is_my_turn(&self) -> bool {
+        self.state.is_my_turn()
+    }
+
+    /// Consume the state to extract the SecureSession and PeerIdentity.
+    /// MUST be called only after `is_finished() == true`.
+    pub fn into_secure_session(self) -> Result<(SecureSession, PeerIdentity, Vec<u8>)> {
+        if !self.is_finished() {
+            return Err(SwiftWaveError::HandshakeFailed);
+        }
+
+        let remote_static = self.state
+            .get_remote_static()
+            .ok_or(SwiftWaveError::HandshakeFailed)?;
+            
+        let mut public_key = [0u8; 32];
+        public_key.copy_from_slice(remote_static);
+        
+        let transcript = self.state.get_handshake_hash();
+
+        let peer_identity = PeerIdentity::from_public_key(public_key, "Unknown Peer");
+        let transport = self.state
+            .into_transport_mode()
+            .map_err(|_| SwiftWaveError::HandshakeFailed)?;
+
+        Ok((SecureSession::new(transport), peer_identity, transcript.to_vec()))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Adversarial Tests
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use x25519_dalek::{StaticSecret, PublicKey};
+    use rand_core::OsRng;
+    use crate::security::sas::SASGenerator;
+
+    fn generate_keypair() -> ([u8; 32], [u8; 32]) {
+        let secret = StaticSecret::random_from_rng(OsRng);
+        let public = PublicKey::from(&secret);
+        let mut sec_bytes = [0u8; 32];
+        sec_bytes.copy_from_slice(secret.as_bytes());
+        (sec_bytes, *public.as_bytes())
+    }
+
+    // Helper to simulate a network transport between two states.
+    fn drive_handshake(init: &mut HandshakeState, resp: &mut HandshakeState) -> Result<()> {
+        let mut msg = vec![0u8; MAX_MESSAGE];
+        let mut out = vec![0u8; MAX_MESSAGE];
+
+        while !init.is_finished() || !resp.is_finished() {
+            if init.is_my_turn() {
+                let len = init.write_message(&[], &mut msg)?;
+                resp.read_message(&msg[..len], &mut out)?;
+            } else if resp.is_my_turn() {
+                let len = resp.write_message(&[], &mut msg)?;
+                init.read_message(&msg[..len], &mut out)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_two_peers_successfully_authenticating() {
+        let (init_sec, init_pub) = generate_keypair();
+        let (resp_sec, resp_pub) = generate_keypair();
+
+        let mut init = HandshakeState::new_initiator(&init_sec).unwrap();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+
+        drive_handshake(&mut init, &mut resp).expect("Handshake should succeed");
+
+        let (_, init_peer_id, init_transcript) = init.into_secure_session().unwrap();
+        let (_, resp_peer_id, resp_transcript) = resp.into_secure_session().unwrap();
+
+        // Verify mutual authentication
+        assert_eq!(init_peer_id.public_key, resp_pub);
+        assert_eq!(resp_peer_id.public_key, init_pub);
+        
+        // Transcript hash must match for SAS
+        assert_eq!(init_transcript, resp_transcript);
+        
+        // SAS must match
+        let init_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &init_transcript);
+        let resp_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &resp_transcript);
+        assert_eq!(init_sas, resp_sas);
+    }
+
+    #[test]
+    fn test_authentication_failure_altered_public_key() {
+        let (init_sec, init_pub) = generate_keypair();
+        let (resp_sec, resp_pub) = generate_keypair();
+        let (mitm_sec, _) = generate_keypair();
+
+        let mut init = HandshakeState::new_initiator(&init_sec).unwrap();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+
+        // MITM modifies the first message
+        let mut msg = vec![0u8; MAX_MESSAGE];
+        let mut out = vec![0u8; MAX_MESSAGE];
+        let len = init.write_message(&[], &mut msg).unwrap();
+        
+        // Alter payload
+        msg[0] ^= 0xff; 
+        
+        // Responder should reject the tampered message
+        let res = resp.read_message(&msg[..len], &mut out);
+        assert!(matches!(res, Err(SwiftWaveError::HandshakeFailed)));
+    }
+
+    #[test]
+    fn test_wrong_sas_detection() {
+        let (init_sec, init_pub) = generate_keypair();
+        let (resp_sec, resp_pub) = generate_keypair();
+
+        let mut init = HandshakeState::new_initiator(&init_sec).unwrap();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+
+        drive_handshake(&mut init, &mut resp).unwrap();
+
+        let (_, _, init_transcript) = init.into_secure_session().unwrap();
+        let (_, _, resp_transcript) = resp.into_secure_session().unwrap();
+
+        // MitM attempts to substitute a public key but cannot fake the transcript
+        let fake_pub = generate_keypair().1;
+        
+        let init_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &init_transcript);
+        let fake_sas = SASGenerator::derive_sas_hash(&init_pub, &fake_pub, &resp_transcript);
+        
+        assert_ne!(init_sas, fake_sas);
+    }
+
+    #[test]
+    fn test_replayed_handshake_data() {
+        let (init_sec, _) = generate_keypair();
+        let (resp_sec, _) = generate_keypair();
+
+        let mut init = HandshakeState::new_initiator(&init_sec).unwrap();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+
+        let mut msg = vec![0u8; MAX_MESSAGE];
+        let mut out = vec![0u8; MAX_MESSAGE];
+        let len = init.write_message(&[], &mut msg).unwrap();
+
+        // Responder reads first message
+        resp.read_message(&msg[..len], &mut out).unwrap();
+        
+        // Replay attack: MITM sends the exact same first message again
+        let replay_res = resp.read_message(&msg[..len], &mut out);
+        
+        // Noise state machine rejects out-of-order or duplicate messages for its current state
+        assert!(replay_res.is_err());
+    }
+
+    #[test]
+    fn test_invalid_message_boundaries() {
+        let (resp_sec, _) = generate_keypair();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+        let mut out = vec![0u8; MAX_MESSAGE];
+
+        // Too short / garbage
+        assert!(resp.read_message(&[0x00, 0x01, 0x02], &mut out).is_err());
+        
+        // Exceeds max
+        assert!(resp.read_message(&vec![0x00; MAX_MESSAGE + 1], &mut out).is_err());
+    }
 }

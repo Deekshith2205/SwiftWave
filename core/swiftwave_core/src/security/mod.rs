@@ -4,10 +4,13 @@ pub mod handshake;
 pub mod hashing;
 pub mod identity;
 pub mod sas;
+pub mod session;
 
 pub use hashing::{
     Hash, StreamingHasher, derive_chunk_nonce, hash_bytes, hash_chunk,
     hash_to_hex, hex_to_hash, verify_chunk,
 };
-pub use identity::{PeerFingerprint, PeerRecord, TrustLevel, TrustStore};
-pub use sas::{derive_sas_hash, sas_emoji, sas_numeric};
+pub use identity::{PeerRecord, TrustLevel, TrustStore};
+pub use sas::SASGenerator;
+pub use session::SecureSession;
+pub use handshake::HandshakeState;
