@@ -2,31 +2,21 @@
 //!
 //! Every function in this module:
 //! 1. Converts C types to Rust types.
-//! 2. Calls the corresponding `swiftwave_core` function.
+//! 2. Calls the corresponding `swiftwave_core` function via `SwiftWaveRuntime`.
 //! 3. Converts the result back to C types.
 //!
-//! Error handling: functions that can fail return a `SwiftWaveStatus` status code
-//! (see below). Detailed error messages are retrievable via
-//! `swiftwave_ffi_last_error`.
-//!
-//! # TODO (Phase 2): replace ad-hoc status codes with a proper handle table.
+//! Error handling: functions that can fail return a `SwiftWaveStatus` status code.
+//! All exported functions are wrapped in `catch_unwind` to ensure Rust panics
+//! never cross the C ABI.
 
-#![allow(clippy::missing_safety_doc)] // Safety docs are on the trait level above.
+#![allow(clippy::missing_safety_doc)]
 
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::os::raw::c_char;
-use std::sync::OnceLock;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
-// ---------------------------------------------------------------------------
-// Tokio runtime (shared across all FFI calls)
-// ---------------------------------------------------------------------------
-
-/// Global Tokio runtime initialised once at `swiftwave_ffi_init`.
-static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-fn runtime() -> &'static tokio::runtime::Runtime {
-    RUNTIME.get().expect("swiftwave_ffi_init() was not called before using the API")
-}
+use swiftwave_core::runtime::{SwiftWaveRuntime, LifecycleState};
+use swiftwave_core::error::SwiftWaveError;
 
 // ---------------------------------------------------------------------------
 // Status codes
@@ -36,140 +26,250 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 #[repr(C)]
 pub enum SwiftWaveStatus {
     /// Operation completed successfully.
-    Ok = 0,
-    /// A null pointer was passed where a valid pointer was required.
-    NullPointer = 1,
-    /// The provided string was not valid UTF-8.
-    InvalidUtf8 = 2,
-    /// The Rust core returned an error (retrieve via `swiftwave_ffi_last_error`).
-    CoreError = 3,
-    /// The FFI library has not been initialised (`swiftwave_ffi_init` not called).
-    NotInitialised = 4,
+    Success = 0,
+    /// An invalid or destroyed handle was passed.
+    InvalidHandle = 1,
+    /// The runtime has not been initialized.
+    NotInitialized = 2,
+    /// The runtime is already initialized.
+    AlreadyInitialized = 3,
+    /// An I/O error occurred.
+    IoError = 4,
+    /// An internal core error occurred or a panic was caught.
+    InternalError = 5,
+    /// A required pointer argument was null.
+    NullPointer = 6,
+    /// A string argument was not valid UTF-8.
+    InvalidUtf8 = 7,
+    /// The runtime is in a shutdown state.
+    Shutdown = 8,
+    /// The runtime was already shut down.
+    AlreadyShutdown = 9,
+}
+
+impl From<SwiftWaveError> for SwiftWaveStatus {
+    fn from(err: SwiftWaveError) -> Self {
+        match err {
+            SwiftWaveError::Io(_) => SwiftWaveStatus::IoError,
+            _ => SwiftWaveStatus::InternalError,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Opaque Handle
+// ---------------------------------------------------------------------------
+
+/// Opaque handle mapping to a Boxed `SwiftWaveRuntime`.
+pub struct SwiftWaveHandle {
+    runtime: Box<SwiftWaveRuntime>,
+}
+
+// ---------------------------------------------------------------------------
+// Panic Containment Helpers
+// ---------------------------------------------------------------------------
+
+/// Executes a closure that returns a `SwiftWaveStatus`, catching any panics.
+/// If a panic occurs, returns `SwiftWaveStatus::InternalError`.
+pub(crate) fn catch_panic_status<F>(f: F) -> SwiftWaveStatus
+where
+    F: FnOnce() -> SwiftWaveStatus + std::panic::UnwindSafe,
+{
+    match catch_unwind(f) {
+        Ok(status) => status,
+        Err(_) => SwiftWaveStatus::InternalError,
+    }
+}
+
+/// Executes a closure that returns a raw pointer, catching any panics.
+/// If a panic occurs, returns a null pointer.
+pub(crate) fn catch_panic_ptr<T, F>(f: F) -> *mut T
+where
+    F: FnOnce() -> *mut T + std::panic::UnwindSafe,
+{
+    match catch_unwind(f) {
+        Ok(ptr) => ptr,
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-/// Initialise the SwiftWave FFI library.
+/// Create a new, uninitialized SwiftWave runtime.
 ///
-/// MUST be called once before any other `swiftwave_ffi_*` function.
-/// Safe to call from any thread; subsequent calls are no-ops.
-///
-/// # Returns
-/// `SwiftWaveStatus::Ok` on success.
+/// Returns an opaque pointer to the `SwiftWaveHandle`. 
+/// The caller MUST eventually call `swiftwave_destroy` to free memory.
+/// Returns NULL on failure to create the runtime.
 #[no_mangle]
-pub extern "C" fn swiftwave_ffi_init() -> SwiftWaveStatus {
-    // Set up tracing to stderr in debug builds.
-    #[cfg(debug_assertions)]
-    let _ = tracing_subscriber::fmt::try_init();
+pub extern "C" fn swiftwave_create() -> *mut SwiftWaveHandle {
+    catch_panic_ptr(|| {
+        // Set up tracing to stderr in debug builds.
+        #[cfg(debug_assertions)]
+        let _ = tracing_subscriber::fmt::try_init();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)           // keep RAM usage low
-        .thread_name("swiftwave-worker")
-        .enable_all()
-        .build();
-
-    match rt {
-        Ok(runtime) => {
-            let _ = RUNTIME.set(runtime); // no-op if already set
-            SwiftWaveStatus::Ok
+        match SwiftWaveRuntime::new() {
+            Ok(runtime) => {
+                let handle = Box::new(SwiftWaveHandle {
+                    runtime: Box::new(runtime),
+                });
+                Box::into_raw(handle)
+            }
+            Err(_) => std::ptr::null_mut(),
         }
-        Err(_) => SwiftWaveStatus::CoreError,
-    }
+    })
 }
 
-/// Shut down the SwiftWave FFI library and release all resources.
+/// Initialize the SwiftWave runtime.
 ///
-/// After this call, all swiftwave_ffi_* functions are undefined behaviour.
-///
-/// # TODO (Phase 2): gracefully stop all active transfers first.
+/// MUST be called exactly once before using other functionality.
 #[no_mangle]
-pub extern "C" fn swiftwave_ffi_shutdown() {
-    // Runtime is dropped when the OnceLock is cleaned up at process exit.
-    // TODO (Phase 2): explicit shutdown with transfer cancellation.
+pub extern "C" fn swiftwave_init(handle: *mut SwiftWaveHandle) -> SwiftWaveStatus {
+    catch_panic_status(|| {
+        if handle.is_null() {
+            return SwiftWaveStatus::NullPointer;
+        }
+
+        let h = unsafe { &*handle };
+        
+        let state = match h.runtime.state.read() {
+            Ok(guard) => *guard,
+            Err(_) => return SwiftWaveStatus::InternalError,
+        };
+
+        if state != LifecycleState::Created {
+            return SwiftWaveStatus::AlreadyInitialized;
+        }
+
+        match h.runtime.initialize() {
+            Ok(_) => SwiftWaveStatus::Success,
+            Err(e) => e.into(),
+        }
+    })
+}
+
+/// Shut down the SwiftWave runtime and stop ongoing operations.
+///
+/// The handle is still valid after this call and must be freed using `swiftwave_destroy`.
+#[no_mangle]
+pub extern "C" fn swiftwave_shutdown(handle: *mut SwiftWaveHandle) -> SwiftWaveStatus {
+    catch_panic_status(|| {
+        if handle.is_null() {
+            return SwiftWaveStatus::NullPointer;
+        }
+
+        let h = unsafe { &*handle };
+        
+        let state = match h.runtime.state.read() {
+            Ok(guard) => *guard,
+            Err(_) => return SwiftWaveStatus::InternalError,
+        };
+
+        if state == LifecycleState::Shutdown {
+            return SwiftWaveStatus::AlreadyShutdown;
+        }
+        
+        if state == LifecycleState::Created {
+            return SwiftWaveStatus::NotInitialized;
+        }
+
+        match h.runtime.shutdown() {
+            Ok(_) => SwiftWaveStatus::Success,
+            Err(e) => e.into(),
+        }
+    })
+}
+
+/// Destroy the SwiftWave handle and free its memory.
+///
+/// MUST be called exactly once per handle created by `swiftwave_create`.
+/// Automatically calls shutdown if it hasn't been called yet.
+#[no_mangle]
+pub extern "C" fn swiftwave_destroy(handle: *mut SwiftWaveHandle) {
+    let _ = catch_panic_status(AssertUnwindSafe(|| {
+        if handle.is_null() {
+            return SwiftWaveStatus::Success;
+        }
+
+        // Recover the Box and let it drop to free memory.
+        let h = unsafe { Box::from_raw(handle) };
+        let _ = h.runtime.shutdown();
+        SwiftWaveStatus::Success
+    }));
 }
 
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
 
-/// Generate a new device ID and return it as a heap-allocated UTF-8 C string.
+/// Get the device ID (fingerprint) of this runtime.
 ///
-/// # Ownership
-/// The caller MUST free the returned string with `swiftwave_ffi_free_string`.
-/// Returns NULL on failure.
-///
-/// # TODO (Phase 2): persist identity to secure storage.
+/// Returns a heap-allocated UTF-8 C string.
+/// The caller MUST free the returned string with `swiftwave_free_string`.
+/// Returns NULL on failure or if not initialized.
 #[no_mangle]
-pub extern "C" fn swiftwave_ffi_generate_device_id() -> *mut c_char {
-    let id = swiftwave_core::identity::DeviceId::generate();
-    let s = id.to_string();
-    match CString::new(s) {
-        Ok(cs) => cs.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
+pub extern "C" fn swiftwave_get_device_id(handle: *const SwiftWaveHandle) -> *mut c_char {
+    catch_panic_ptr(|| {
+        if handle.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let h = unsafe { &*handle };
+
+        let state = match h.runtime.state.read() {
+            Ok(guard) => *guard,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        if state == LifecycleState::Created || state == LifecycleState::Shutdown {
+            return std::ptr::null_mut();
+        }
+
+        let identity_guard = match h.runtime.identity.read() {
+            Ok(guard) => guard,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        if let Some(identity) = identity_guard.as_ref() {
+            let fingerprint = identity.fingerprint().0;
+            match CString::new(fingerprint) {
+                Ok(cs) => cs.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        } else {
+            std::ptr::null_mut()
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
 // Memory management
 // ---------------------------------------------------------------------------
 
-/// Free a C string previously returned by any `swiftwave_ffi_*` function.
+/// Free a C string previously returned by any `swiftwave_*` function.
 ///
-/// Passing NULL is a no-op. Passing a pointer not returned by this library
-/// is undefined behaviour.
-///
-/// # Safety
-/// `ptr` must have been returned by this library and not yet freed.
+/// Passing NULL is a no-op.
 #[no_mangle]
-pub unsafe extern "C" fn swiftwave_ffi_free_string(ptr: *mut c_char) {
-    if !ptr.is_null() {
-        // SAFETY: ptr was allocated by CString::into_raw in this library.
-        let _ = CString::from_raw(ptr);
-    }
+pub unsafe extern "C" fn swiftwave_free_string(ptr: *mut c_char) {
+    let _ = catch_panic_status(AssertUnwindSafe(|| {
+        if !ptr.is_null() {
+            let _ = unsafe { CString::from_raw(ptr) };
+        }
+        SwiftWaveStatus::Success
+    }));
 }
 
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
 
-/// Return the swiftwave_ffi library version as a static C string.
+/// Return the SwiftWave library version as a static C string.
 ///
 /// The returned pointer is `'static` — do NOT free it.
 #[no_mangle]
-pub extern "C" fn swiftwave_ffi_version() -> *const c_char {
-    // SAFETY: literal is null-terminated and static.
-    b"0.1.0\0".as_ptr() as *const c_char
-}
-
-// ---------------------------------------------------------------------------
-// TODO stubs — Phase 2
-// ---------------------------------------------------------------------------
-
-/// Start peer discovery.
-///
-/// # TODO (Phase 2): wire to `PlatformAdapter::discovery_backend()`.
-#[no_mangle]
-pub extern "C" fn swiftwave_ffi_start_discovery() -> SwiftWaveStatus {
-    SwiftWaveStatus::NotInitialised // TODO (Phase 2)
-}
-
-/// Stop peer discovery.
-///
-/// # TODO (Phase 2)
-#[no_mangle]
-pub extern "C" fn swiftwave_ffi_stop_discovery() -> SwiftWaveStatus {
-    SwiftWaveStatus::NotInitialised // TODO (Phase 2)
-}
-
-/// Initiate a file send to the specified peer.
-///
-/// # TODO (Phase 2): wire to `FileEngine::prepare_offer()` + `Transport::connect()`.
-#[no_mangle]
-pub extern "C" fn swiftwave_ffi_send_file(
-    _peer_id: *const c_char,
-    _file_path: *const c_char,
-) -> SwiftWaveStatus {
-    SwiftWaveStatus::NotInitialised // TODO (Phase 2)
+pub extern "C" fn swiftwave_version() -> *const c_char {
+    catch_panic_ptr(|| {
+        b"0.1.0\0".as_ptr() as *const c_char
+    })
 }

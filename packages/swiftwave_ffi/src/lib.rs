@@ -20,3 +20,6 @@ pub mod api;
 
 // Re-export all public API symbols so the linker can find them.
 pub use api::*;
+
+#[cfg(test)]
+mod tests;

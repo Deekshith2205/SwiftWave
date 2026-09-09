@@ -55,6 +55,6 @@ pub mod transport;
 // Re-export most commonly used types.
 pub use config::CoreConfig;
 pub use device::identity::DeviceIdentity;
-pub use device::DeviceId;
+pub mod runtime;
 pub use error::{Result, SwiftWaveError};
 pub use transfer::session::TransferId;
