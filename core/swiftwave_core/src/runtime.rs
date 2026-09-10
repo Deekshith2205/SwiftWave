@@ -6,7 +6,8 @@
 //! The FFI layer holds a pointer to an instance of `SwiftWaveRuntime` and manages
 //! its lifecycle safely.
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use std::collections::HashMap;
 use tokio::runtime::Runtime;
 
 use crate::config::CoreConfig;
@@ -25,6 +26,8 @@ pub enum LifecycleState {
     Shutdown,
 }
 
+static RUNTIME_INIT_LOCK: Mutex<()> = Mutex::new(());
+
 // ---------------------------------------------------------------------------
 // Temporary Phase 1 In-Memory Storage
 // ---------------------------------------------------------------------------
@@ -34,32 +37,34 @@ pub enum LifecycleState {
 /// This does not persist keys across process restarts. It is solely to allow
 /// the runtime to pass initialization checks without requiring full OS-level
 /// keystore integration (Phase 2).
-struct InMemoryMockStorage {
-    cache: RwLock<std::collections::HashMap<String, Vec<u8>>>,
+/// 
+/// DEVELOPMENT / TESTING ONLY.
+pub struct InMemoryMockStorage {
+    cache: Mutex<HashMap<String, Vec<u8>>>,
 }
 
 impl InMemoryMockStorage {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            cache: RwLock::new(std::collections::HashMap::new()),
+            cache: Mutex::new(HashMap::new()),
         }
     }
 }
 
 impl SecureStorage for InMemoryMockStorage {
     fn save_secret(&self, key: &str, secret: &[u8]) -> Result<()> {
-        let mut cache = self.cache.write().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let mut cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         cache.insert(key.to_string(), secret.to_vec());
         Ok(())
     }
 
     fn load_secret(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let cache = self.cache.read().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         Ok(cache.get(key).cloned())
     }
 
     fn delete_secret(&self, key: &str) -> Result<()> {
-        let mut cache = self.cache.write().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let mut cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         cache.remove(key);
         Ok(())
     }
@@ -76,11 +81,18 @@ pub struct SwiftWaveRuntime {
     pub tokio_rt: Runtime,
     pub config: RwLock<Option<CoreConfig>>,
     pub identity: RwLock<Option<DeviceIdentity>>,
+    pub storage: Arc<dyn SecureStorage>,
 }
 
 impl SwiftWaveRuntime {
-    /// Create a new, uninitialized runtime with a dedicated Tokio context.
+    /// Create a new, uninitialized runtime with a dedicated Tokio context
+    /// and the default development in-memory storage.
     pub fn new() -> Result<Self> {
+        Self::new_with_storage(Arc::new(InMemoryMockStorage::new()))
+    }
+
+    /// Create a new runtime with a specifically injected secure storage implementation.
+    pub fn new_with_storage(storage: Arc<dyn SecureStorage>) -> Result<Self> {
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2) // keep RAM usage low for mobile
             .thread_name("swiftwave-worker")
@@ -93,11 +105,17 @@ impl SwiftWaveRuntime {
             tokio_rt: rt,
             config: RwLock::new(None),
             identity: RwLock::new(None),
+            storage,
         })
     }
 
     /// Initialize the runtime components (config, identity).
     pub fn initialize(&self) -> Result<()> {
+        // RUNTIME_INIT_LOCK guarantees that concurrent SwiftWaveRuntime initialization paths
+        // cannot simultaneously perform the empty-storage `load -> generate -> save` sequence.
+        // It specifically protects identity generation during process startup across runtimes.
+        let _init_guard = RUNTIME_INIT_LOCK.lock().unwrap();
+
         let mut state = self.state.write().map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
         if *state != LifecycleState::Created {
             return Err(SwiftWaveError::Internal("Runtime is already initialized or shutting down".to_string()));
@@ -105,13 +123,9 @@ impl SwiftWaveRuntime {
 
         // Initialize default configuration
         let config = CoreConfig::default();
-        
-        // TODO (PHASE 2): Replace InMemoryMockStorage with OS-backed keystore integration.
-        // E.g., injected from Flutter side via FFI or using a native rust-keyring library.
-        let storage = Arc::new(InMemoryMockStorage::new());
         let device_name = "SwiftWave Device"; // TODO (Phase 2): pull from config or OS
 
-        let identity = DeviceIdentity::generate(device_name, storage)?;
+        let identity = DeviceIdentity::load_or_generate(device_name, self.storage.clone())?;
 
         *self.config.write().map_err(|_| SwiftWaveError::Internal("Runtime config lock poisoned".to_string()))? = Some(config);
         *self.identity.write().map_err(|_| SwiftWaveError::Internal("Runtime identity lock poisoned".to_string()))? = Some(identity);
