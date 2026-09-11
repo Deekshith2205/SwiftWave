@@ -1493,6 +1493,8 @@ name = "swiftwave_ffi"
 version = "0.1.0"
 dependencies = [
  "swiftwave_core",
+ "swiftwave_storage_windows",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",

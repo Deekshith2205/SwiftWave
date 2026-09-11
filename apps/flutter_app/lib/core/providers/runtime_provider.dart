@@ -1,17 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import '../ffi/swiftwave_native.dart';
 import 'package:flutter/foundation.dart';
 
-/// Exposes the global lifecycle of the SwiftWave native runtime.
-final swiftWaveRuntimeProvider = Provider<SwiftWaveNative>((ref) {
+/// Exposes the global lifecycle of the SwiftWave native runtime asynchronously.
+final swiftWaveRuntimeProvider = FutureProvider<SwiftWaveNative>((ref) async {
   final runtime = SwiftWaveNative();
-  
+
   try {
-    runtime.create();
+    // Phase 2D: Production secure storage integration
+    // Resolves the persistent application support directory.
+    final directory = await getApplicationSupportDirectory();
+    
+    // Creates the runtime using the production path. 
+    runtime.create(dataDirectory: directory.path);
     runtime.init();
   } catch (e, stackTrace) {
     debugPrint('[SwiftWave] Failed to initialize native runtime: $e\n$stackTrace');
-    // For Phase 1, we continue running gracefully in degraded mode if FFI fails.
+    // We do NOT fall back to fake success / degraded mock in production if secure storage fails.
+    // Propagate the error.
+    rethrow;
   }
 
   // Clean up native resources when the provider is destroyed.

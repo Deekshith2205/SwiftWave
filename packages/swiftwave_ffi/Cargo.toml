@@ -17,5 +17,11 @@ tokio       = { workspace = true }
 tracing     = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+swiftwave_storage_windows = { path = "../swiftwave_storage_windows" }
+
 [build-dependencies]
 # cbindgen = "0.27"  # TODO (Phase 2): auto-generate swiftwave_ffi.h header
+
+[dev-dependencies]
+tempfile = "3.10"

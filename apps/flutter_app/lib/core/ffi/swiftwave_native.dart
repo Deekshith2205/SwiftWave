@@ -8,8 +8,8 @@ import 'package:ffi/ffi.dart';
 
 final class SwiftWaveHandle extends Opaque {}
 
-typedef _SwiftWaveCreateNative = Pointer<SwiftWaveHandle> Function();
-typedef _SwiftWaveCreateDart = Pointer<SwiftWaveHandle> Function();
+typedef _SwiftWaveCreateNative = Pointer<SwiftWaveHandle> Function(Pointer<Utf8>);
+typedef _SwiftWaveCreateDart = Pointer<SwiftWaveHandle> Function(Pointer<Utf8>);
 
 typedef _SwiftWaveDestroyNative = Void Function(Pointer<SwiftWaveHandle>);
 typedef _SwiftWaveDestroyDart = void Function(Pointer<SwiftWaveHandle>);
@@ -95,15 +95,28 @@ class SwiftWaveNative {
     _isLoaded = true;
   }
 
-  /// Create the runtime instance.
-  void create() {
+  /// Create the runtime instance backed by secure persistent storage.
+  /// [dataDirectory] is required.
+  void create({required String dataDirectory}) {
+    if (dataDirectory.isEmpty) {
+      throw ArgumentError('dataDirectory cannot be empty');
+    }
+
     if (_isDestroyed) throw StateError('Handle has been destroyed');
     if (!_isLoaded) return;
     if (_handle != nullptr) return; // already created
 
-    _handle = _create();
-    if (_handle == nullptr) {
-      throw SwiftWaveNativeException(5, 'Failed to create SwiftWave runtime');
+    Pointer<Utf8> cPath = dataDirectory.toNativeUtf8();
+
+    try {
+      _handle = _create(cPath);
+      if (_handle == nullptr) {
+        throw SwiftWaveNativeException(5, 'Failed to create SwiftWave runtime');
+      }
+    } finally {
+      if (cPath != nullptr) {
+        malloc.free(cPath);
+      }
     }
   }
 

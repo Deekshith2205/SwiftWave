@@ -103,13 +103,38 @@ where
 /// The caller MUST eventually call `swiftwave_destroy` to free memory.
 /// Returns NULL on failure to create the runtime.
 #[no_mangle]
-pub extern "C" fn swiftwave_create() -> *mut SwiftWaveHandle {
+pub extern "C" fn swiftwave_create(data_directory: *const c_char) -> *mut SwiftWaveHandle {
     catch_panic_ptr(|| {
         // Set up tracing to stderr in debug builds.
         #[cfg(debug_assertions)]
         let _ = tracing_subscriber::fmt::try_init();
 
-        match SwiftWaveRuntime::new() {
+        if data_directory.is_null() {
+            return std::ptr::null_mut();
+        }
+
+        let path_str = unsafe { std::ffi::CStr::from_ptr(data_directory) }.to_str();
+        
+        let storage: std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage> = match path_str {
+            Ok(path) if path.is_empty() => return std::ptr::null_mut(),
+            Ok(path) => {
+                #[cfg(windows)]
+                {
+                    match swiftwave_storage_windows::WindowsSecureStorage::new(path) {
+                        Ok(s) => std::sync::Arc::new(s),
+                        Err(_) => return std::ptr::null_mut(),
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    // Other platforms not implemented yet. Do NOT fallback to mock.
+                    return std::ptr::null_mut();
+                }
+            }
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        match SwiftWaveRuntime::new_with_storage(storage) {
             Ok(runtime) => {
                 let handle = Box::new(SwiftWaveHandle {
                     runtime: Box::new(runtime),
