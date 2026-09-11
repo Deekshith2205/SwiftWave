@@ -1,4 +1,4 @@
-﻿//! Platform-agnostic secure storage abstraction.
+//! Platform-agnostic secure storage abstraction.
 //!
 //! SwiftWave core delegates the actual persistence of sensitive identity material
 //! (e.g., the X25519 static private key) to the host platform via this trait.

@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "core/swiftwave_core",
     "packages/swiftwave_ffi",
+    "packages/swiftwave_storage_windows",
 ]
 
 # ---------------------------------------------------------------------------
