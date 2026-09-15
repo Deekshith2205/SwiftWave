@@ -1,6 +1,7 @@
 //! Discovery module: peer discovery trait and types.
 
 pub mod types;
+pub mod mdns;
 
 pub use types::{DiscoveredPeer, DiscoveryEvent, DiscoveryMedium};
 
