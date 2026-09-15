@@ -160,8 +160,12 @@ impl Discovery for MdnsDiscovery {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
                         // Parse UNTRUSTED TXT records
-                        let txt_map = info.get_properties().clone(); // get_properties returns &HashMap
-                        let txt_map_str = txt_map.iter().map(|(k, v)| (k.clone(), v.val_str().to_string())).collect();
+                        let txt_map = info.get_properties().clone(); // get_properties returns &ServiceProperties
+                        let mut txt_map_str = std::collections::HashMap::new();
+                        for prop in txt_map.iter() {
+                            txt_map_str.insert(prop.key().to_string(), prop.val_str().to_string());
+                        }
+                        
                         let parsed = match SwiftWaveTxtRecord::parse(&txt_map_str) {
                             Some(r) => r,
                             None => continue, // Malformed, ignore gracefully
@@ -174,7 +178,17 @@ impl Discovery for MdnsDiscovery {
 
                         // Determine the endpoint (prefer IPv4 if both available for simplicity, or grab any)
                         let address = match info.get_addresses().iter().next() {
-                            Some(ip) => SocketAddr::new(*ip, info.get_port()),
+                            Some(ip) => {
+                                // ip is usually a ScopedIp or IpAddr. We can format it to bypass strict type mismatch,
+                                // but we need an IpAddr. We can use the Display impl and parse back to IpAddr.
+                                // Actually, ScopedIp usually derefs to IpAddr or has .to_string() returning just the IP if no scope.
+                                let ip_str = ip.to_string();
+                                let ip_cleaned = ip_str.split('%').next().unwrap_or(&ip_str); // remove scope id for parsing if present
+                                match ip_cleaned.parse::<std::net::IpAddr>() {
+                                    Ok(parsed_ip) => SocketAddr::new(parsed_ip, info.get_port()),
+                                    Err(_) => continue,
+                                }
+                            },
                             None => continue,
                         };
 
