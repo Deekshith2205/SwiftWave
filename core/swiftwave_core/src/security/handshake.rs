@@ -7,9 +7,9 @@
 
 use snow::{Builder, HandshakeState as SnowHandshakeState};
 
+use crate::device::identity::{PeerIdentity, PublicKeyFingerprint};
 use crate::error::{Result, SwiftWaveError};
 use crate::security::session::SecureSession;
-use crate::device::identity::{PeerIdentity, PublicKeyFingerprint};
 
 const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
 const MAX_MESSAGE: usize = 65535;
@@ -27,7 +27,10 @@ impl HandshakeState {
             .local_private_key(local_static_key)
             .build_initiator()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-        Ok(Self { state: builder, is_initiator: true })
+        Ok(Self {
+            state: builder,
+            is_initiator: true,
+        })
     }
 
     /// Initialize a new handshake state as the responder.
@@ -36,7 +39,10 @@ impl HandshakeState {
             .local_private_key(local_static_key)
             .build_responder()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-        Ok(Self { state: builder, is_initiator: false })
+        Ok(Self {
+            state: builder,
+            is_initiator: false,
+        })
     }
 
     /// Read an incoming handshake message from the peer.
@@ -73,17 +79,19 @@ impl HandshakeState {
             return Err(SwiftWaveError::HandshakeFailed);
         }
 
-        let remote_static = self.state
+        let remote_static = self
+            .state
             .get_remote_static()
             .ok_or(SwiftWaveError::HandshakeFailed)?;
-            
+
         let mut public_key = [0u8; 32];
         public_key.copy_from_slice(remote_static);
-        
+
         let transcript = self.state.get_handshake_hash().to_vec();
 
         let peer_identity = PeerIdentity::from_public_key(public_key, "Unknown Peer");
-        let transport = self.state
+        let transport = self
+            .state
             .into_transport_mode()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
 
@@ -97,9 +105,9 @@ impl HandshakeState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use x25519_dalek::{StaticSecret, PublicKey};
-    use rand_core::OsRng;
     use crate::security::sas::SASGenerator;
+    use rand_core::OsRng;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     fn generate_keypair() -> ([u8; 32], [u8; 32]) {
         let secret = StaticSecret::random_from_rng(OsRng);
@@ -142,10 +150,10 @@ mod tests {
         // Verify mutual authentication
         assert_eq!(init_peer_id.public_key, resp_pub);
         assert_eq!(resp_peer_id.public_key, init_pub);
-        
+
         // Transcript hash must match for SAS
         assert_eq!(init_transcript, resp_transcript);
-        
+
         // SAS must match
         let init_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &init_transcript);
         let resp_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &resp_transcript);
@@ -165,10 +173,10 @@ mod tests {
         let mut msg = vec![0u8; MAX_MESSAGE];
         let mut out = vec![0u8; MAX_MESSAGE];
         let len = init.write_message(&[], &mut msg).unwrap();
-        
+
         // Alter payload
-        msg[0] ^= 0xff; 
-        
+        msg[0] ^= 0xff;
+
         // Responder reads the tampered first message (this might succeed since 'e' is unauthenticated in XX first message)
         let res1 = resp.read_message(&msg[..len], &mut out);
 
@@ -197,10 +205,10 @@ mod tests {
 
         // MitM attempts to substitute a public key but cannot fake the transcript
         let fake_pub = generate_keypair().1;
-        
+
         let init_sas = SASGenerator::derive_sas_hash(&init_pub, &resp_pub, &init_transcript);
         let fake_sas = SASGenerator::derive_sas_hash(&init_pub, &fake_pub, &resp_transcript);
-        
+
         assert_ne!(init_sas, fake_sas);
     }
 
@@ -218,10 +226,10 @@ mod tests {
 
         // Responder reads first message
         resp.read_message(&msg[..len], &mut out).unwrap();
-        
+
         // Replay attack: MITM sends the exact same first message again
         let replay_res = resp.read_message(&msg[..len], &mut out);
-        
+
         // Noise state machine rejects out-of-order or duplicate messages for its current state
         assert!(replay_res.is_err());
     }
@@ -234,8 +242,10 @@ mod tests {
 
         // Too short / garbage
         assert!(resp.read_message(&[0x00, 0x01, 0x02], &mut out).is_err());
-        
+
         // Exceeds max
-        assert!(resp.read_message(&vec![0x00; MAX_MESSAGE + 1], &mut out).is_err());
+        assert!(resp
+            .read_message(&vec![0x00; MAX_MESSAGE + 1], &mut out)
+            .is_err());
     }
 }

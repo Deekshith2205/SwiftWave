@@ -89,25 +89,19 @@ mod tests {
 
     #[test]
     fn chunk_count_exact_multiple() {
-        let meta = FileMetadata::new(
-            new_file_id(), "test.txt", 1024, hash_bytes(b""), None, None,
-        );
+        let meta = FileMetadata::new(new_file_id(), "test.txt", 1024, hash_bytes(b""), None, None);
         assert_eq!(meta.chunk_count(256), 4);
     }
 
     #[test]
     fn chunk_count_with_remainder() {
-        let meta = FileMetadata::new(
-            new_file_id(), "test.txt", 1000, hash_bytes(b""), None, None,
-        );
+        let meta = FileMetadata::new(new_file_id(), "test.txt", 1000, hash_bytes(b""), None, None);
         assert_eq!(meta.chunk_count(256), 4); // ceil(1000/256)
     }
 
     #[test]
     fn chunk_count_zero_size() {
-        let meta = FileMetadata::new(
-            new_file_id(), "empty.txt", 0, hash_bytes(b""), None, None,
-        );
+        let meta = FileMetadata::new(new_file_id(), "empty.txt", 0, hash_bytes(b""), None, None);
         assert_eq!(meta.chunk_count(256), 0);
     }
 

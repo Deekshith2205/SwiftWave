@@ -2,15 +2,15 @@
 
 use std::path::{Path, PathBuf};
 use std::ptr;
-use windows_sys::Win32::Security::Cryptography::{
-    CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN,
-};
-use windows_sys::Win32::Foundation::LocalFree;
 use swiftwave_core::device::storage::SecureStorage;
 use swiftwave_core::error::{Result, SwiftWaveError};
+use windows_sys::Win32::Foundation::LocalFree;
+use windows_sys::Win32::Security::Cryptography::{
+    CryptProtectData, CryptUnprotectData, CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+};
 
 /// Secure storage implementation for Windows using DPAPI (Data Protection API).
-/// 
+///
 /// DPAPI encrypts data using the user's logon credentials. The resulting opaque blob
 /// is stored on disk and can only be decrypted by a process running as the same user.
 pub struct WindowsSecureStorage {
@@ -19,7 +19,7 @@ pub struct WindowsSecureStorage {
 
 impl WindowsSecureStorage {
     /// Creates a new Windows secure storage instance.
-    /// 
+    ///
     /// The `app_data_dir` must be a directory isolated to the application,
     /// typically derived from `%APPDATA%` / `%LOCALAPPDATA%`.
     pub fn new(app_data_dir: impl AsRef<Path>) -> Result<Self> {
@@ -47,12 +47,12 @@ impl WindowsSecureStorage {
 impl SecureStorage for WindowsSecureStorage {
     fn save_secret(&self, key: &str, secret: &[u8]) -> Result<()> {
         let path = self.get_file_path(key);
-        
+
         let mut data_in = CRYPT_INTEGER_BLOB {
             cbData: secret.len() as u32,
             pbData: secret.as_ptr() as *mut u8,
         };
-        
+
         let mut data_out = CRYPT_INTEGER_BLOB {
             cbData: 0,
             pbData: ptr::null_mut(),
@@ -62,8 +62,8 @@ impl SecureStorage for WindowsSecureStorage {
         let success = unsafe {
             CryptProtectData(
                 &mut data_in,
-                ptr::null(), // No description
-                ptr::null(), // No optional entropy
+                ptr::null(),     // No description
+                ptr::null(),     // No optional entropy
                 ptr::null_mut(), // No reserved
                 ptr::null_mut(), // No prompt
                 CRYPTPROTECT_UI_FORBIDDEN,
@@ -73,11 +73,16 @@ impl SecureStorage for WindowsSecureStorage {
 
         if success == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(SwiftWaveError::Internal(format!("CryptProtectData failed: {}", err)));
+            return Err(SwiftWaveError::Internal(format!(
+                "CryptProtectData failed: {}",
+                err
+            )));
         }
 
         if data_out.pbData.is_null() {
-            return Err(SwiftWaveError::Internal("CryptProtectData returned null pointer".to_string()));
+            return Err(SwiftWaveError::Internal(
+                "CryptProtectData returned null pointer".to_string(),
+            ));
         }
 
         // Safely extract the encrypted bytes into a Vec
@@ -93,13 +98,13 @@ impl SecureStorage for WindowsSecureStorage {
         // Atomically write the blob to disk.
         // We write to a .tmp file first (using process/thread ID to prevent races), then rename it.
         let temp_filename = format!(
-            "{}.tmp.{}.{:?}", 
-            Self::key_to_filename(key), 
-            std::process::id(), 
+            "{}.tmp.{}.{:?}",
+            Self::key_to_filename(key),
+            std::process::id(),
             std::thread::current().id()
         );
         let temp_path = self.app_data_dir.join(temp_filename);
-        
+
         if let Err(e) = std::fs::write(&temp_path, encrypted_blob) {
             let _ = std::fs::remove_file(&temp_path);
             return Err(SwiftWaveError::Io(e));
@@ -115,7 +120,7 @@ impl SecureStorage for WindowsSecureStorage {
 
     fn load_secret(&self, key: &str) -> Result<Option<Vec<u8>>> {
         let path = self.get_file_path(key);
-        
+
         let encrypted_blob = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -126,7 +131,7 @@ impl SecureStorage for WindowsSecureStorage {
             cbData: encrypted_blob.len() as u32,
             pbData: encrypted_blob.as_ptr() as *mut u8,
         };
-        
+
         let mut data_out = CRYPT_INTEGER_BLOB {
             cbData: 0,
             pbData: ptr::null_mut(),
@@ -147,11 +152,16 @@ impl SecureStorage for WindowsSecureStorage {
 
         if success == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(SwiftWaveError::Internal(format!("CryptUnprotectData failed: {}", err)));
+            return Err(SwiftWaveError::Internal(format!(
+                "CryptUnprotectData failed: {}",
+                err
+            )));
         }
 
         if data_out.pbData.is_null() {
-            return Err(SwiftWaveError::Internal("CryptUnprotectData returned null pointer".to_string()));
+            return Err(SwiftWaveError::Internal(
+                "CryptUnprotectData returned null pointer".to_string(),
+            ));
         }
 
         // Safely extract the decrypted bytes into a Vec
@@ -180,9 +190,9 @@ impl SecureStorage for WindowsSecureStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::sync::Arc;
     use std::thread;
+    use tempfile::tempdir;
 
     #[test]
     fn test_dpapi_first_load_returns_none() {
@@ -196,12 +206,12 @@ mod tests {
     fn test_dpapi_save_load_round_trip() {
         let dir = tempdir().unwrap();
         let storage = WindowsSecureStorage::new(dir.path()).unwrap();
-        
+
         let secret = b"my arbitrary 32 byte secret data";
         assert_eq!(secret.len(), 32);
 
         storage.save_secret("identity_key", secret).unwrap();
-        
+
         let loaded = storage.load_secret("identity_key").unwrap().unwrap();
         assert_eq!(loaded, secret);
 
@@ -216,10 +226,10 @@ mod tests {
     fn test_dpapi_overwrite() {
         let dir = tempdir().unwrap();
         let storage = WindowsSecureStorage::new(dir.path()).unwrap();
-        
+
         storage.save_secret("key1", b"first_data").unwrap();
         storage.save_secret("key1", b"second_data").unwrap();
-        
+
         let loaded = storage.load_secret("key1").unwrap().unwrap();
         assert_eq!(loaded, b"second_data");
     }
@@ -228,13 +238,13 @@ mod tests {
     fn test_dpapi_delete() {
         let dir = tempdir().unwrap();
         let storage = WindowsSecureStorage::new(dir.path()).unwrap();
-        
+
         storage.save_secret("key_to_delete", b"delete_me").unwrap();
         assert!(storage.load_secret("key_to_delete").unwrap().is_some());
-        
+
         storage.delete_secret("key_to_delete").unwrap();
         assert!(storage.load_secret("key_to_delete").unwrap().is_none());
-        
+
         // Deleting again should not fail
         assert!(storage.delete_secret("key_to_delete").is_ok());
     }
@@ -243,10 +253,10 @@ mod tests {
     fn test_dpapi_corrupted_blob_returns_error() {
         let dir = tempdir().unwrap();
         let storage = WindowsSecureStorage::new(dir.path()).unwrap();
-        
+
         let file_path = storage.get_file_path("corrupt_key");
         std::fs::write(&file_path, b"not a valid dpapi blob").unwrap();
-        
+
         let result = storage.load_secret("corrupt_key");
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), SwiftWaveError::Internal(_)));
@@ -255,14 +265,16 @@ mod tests {
     #[test]
     fn test_dpapi_persistence_across_instances() {
         let dir = tempdir().unwrap();
-        
+
         let storage1 = WindowsSecureStorage::new(dir.path()).unwrap();
-        storage1.save_secret("persistent_key", b"persisted_data").unwrap();
-        
+        storage1
+            .save_secret("persistent_key", b"persisted_data")
+            .unwrap();
+
         // Second instance pointing to the exact same directory (simulating restart)
         let storage2 = WindowsSecureStorage::new(dir.path()).unwrap();
         let loaded = storage2.load_secret("persistent_key").unwrap().unwrap();
-        
+
         assert_eq!(loaded, b"persisted_data");
     }
 
@@ -270,7 +282,7 @@ mod tests {
     fn test_dpapi_concurrent_saves() {
         let dir = tempdir().unwrap();
         let storage = Arc::new(WindowsSecureStorage::new(dir.path()).unwrap());
-        
+
         let mut handles = vec![];
         for i in 0..10 {
             let s = storage.clone();
@@ -279,11 +291,11 @@ mod tests {
                 s.save_secret("concurrent_key", &data).unwrap();
             }));
         }
-        
+
         for h in handles {
             h.join().unwrap();
         }
-        
+
         // Final state should be perfectly readable without DPAPI corruption
         let loaded = storage.load_secret("concurrent_key").unwrap().unwrap();
         let s = String::from_utf8(loaded).unwrap();

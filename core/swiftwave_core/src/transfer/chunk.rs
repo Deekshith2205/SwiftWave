@@ -176,7 +176,14 @@ mod tests {
     fn nonce_roundtrip() {
         let nonce = [0x12u8; 12];
         let meta = ChunkMetadata::new(
-            "t".into(), "f".into(), 0, 0, 64, dummy_hash(), &nonce, false,
+            "t".into(),
+            "f".into(),
+            0,
+            0,
+            64,
+            dummy_hash(),
+            &nonce,
+            false,
         );
         assert_eq!(meta.nonce().unwrap(), nonce);
     }
@@ -190,10 +197,7 @@ mod tests {
 
         // Pre-compute hashes for each chunk.
         let data = vec![0u8; file_size as usize];
-        let hashes: Vec<Hash> = data
-            .chunks(chunk_size)
-            .map(|c| hash_chunk(c))
-            .collect();
+        let hashes: Vec<Hash> = data.chunks(chunk_size).map(|c| hash_chunk(c)).collect();
 
         let plan = generate_chunk_plan(tid, fid, file_size, chunk_size, &hashes);
 

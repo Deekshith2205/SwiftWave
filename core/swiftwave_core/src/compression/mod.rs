@@ -48,7 +48,9 @@ impl Codec for NoCompression {
 pub fn select_codec(enabled: bool) -> Box<dyn Codec> {
     if enabled {
         // TODO (Phase 3): return ZstdCodec once implemented.
-        tracing::warn!("Compression requested but Zstd is not yet implemented; falling back to none");
+        tracing::warn!(
+            "Compression requested but Zstd is not yet implemented; falling back to none"
+        );
         Box::new(NoCompression)
     } else {
         Box::new(NoCompression)

@@ -106,9 +106,7 @@ pub fn negotiate(
         .find(|t| local.transports.contains(t) && remote.transports.contains(t))
         .cloned()
         .ok_or_else(|| {
-            crate::error::SwiftWaveError::CapabilityMismatch(
-                "No common transport".to_string(),
-            )
+            crate::error::SwiftWaveError::CapabilityMismatch("No common transport".to_string())
         })?;
 
     // Choose the best common compression: Zstd > None

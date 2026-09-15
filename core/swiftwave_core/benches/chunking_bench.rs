@@ -6,11 +6,15 @@ fn bench_chunking(c: &mut Criterion) {
     let mut group = c.benchmark_group("file_chunking");
 
     for (file_size, chunk_size) in [
-        (1024 * 1024u64, 256 * 1024usize),     // 1 MiB file, 256 KiB chunks
-        (100 * 1024 * 1024, 256 * 1024),        // 100 MiB file, 256 KiB chunks
+        (1024 * 1024u64, 256 * 1024usize), // 1 MiB file, 256 KiB chunks
+        (100 * 1024 * 1024, 256 * 1024),   // 100 MiB file, 256 KiB chunks
     ] {
         let data = vec![0x55u8; file_size as usize];
-        let label = format!("{}mib_{}k_chunks", file_size / 1024 / 1024, chunk_size / 1024);
+        let label = format!(
+            "{}mib_{}k_chunks",
+            file_size / 1024 / 1024,
+            chunk_size / 1024
+        );
         group.throughput(Throughput::Bytes(file_size));
         group.bench_function(&label, |b| {
             b.iter(|| {

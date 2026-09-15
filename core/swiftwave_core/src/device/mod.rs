@@ -4,6 +4,8 @@ pub mod capabilities;
 pub mod identity;
 pub mod storage;
 
-pub use identity::{DeviceIdentity, PublicKeyFingerprint, PeerIdentity};
-pub use capabilities::{Capabilities, NegotiatedCapabilities, Transport, CompressionCodec, negotiate};
+pub use capabilities::{
+    negotiate, Capabilities, CompressionCodec, NegotiatedCapabilities, Transport,
+};
+pub use identity::{DeviceIdentity, PeerIdentity, PublicKeyFingerprint};
 pub use storage::{SecureStorage, IDENTITY_SECRET_KEY};
