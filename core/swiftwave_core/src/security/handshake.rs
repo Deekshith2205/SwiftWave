@@ -80,14 +80,14 @@ impl HandshakeState {
         let mut public_key = [0u8; 32];
         public_key.copy_from_slice(remote_static);
         
-        let transcript = self.state.get_handshake_hash();
+        let transcript = self.state.get_handshake_hash().to_vec();
 
         let peer_identity = PeerIdentity::from_public_key(public_key, "Unknown Peer");
         let transport = self.state
             .into_transport_mode()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
 
-        Ok((SecureSession::new(transport), peer_identity, transcript.to_vec()))
+        Ok((SecureSession::new(transport), peer_identity, transcript))
     }
 }
 
@@ -169,9 +169,17 @@ mod tests {
         // Alter payload
         msg[0] ^= 0xff; 
         
-        // Responder should reject the tampered message
-        let res = resp.read_message(&msg[..len], &mut out);
-        assert!(matches!(res, Err(SwiftWaveError::HandshakeFailed)));
+        // Responder reads the tampered first message (this might succeed since 'e' is unauthenticated in XX first message)
+        let res1 = resp.read_message(&msg[..len], &mut out);
+
+        if res1.is_ok() {
+            // If it succeeded, the handshake must fail on the next message
+            let len2 = resp.write_message(&[], &mut msg).unwrap();
+            let res2 = init.read_message(&msg[..len2], &mut out);
+            assert!(matches!(res2, Err(SwiftWaveError::HandshakeFailed)));
+        } else {
+            assert!(matches!(res1, Err(SwiftWaveError::HandshakeFailed)));
+        }
     }
 
     #[test]

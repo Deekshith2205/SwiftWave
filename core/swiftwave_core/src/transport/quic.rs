@@ -33,9 +33,8 @@ pub fn generate_self_signed_cert() -> Result<(CertificateDer<'static>, PrivateKe
     let cert = rcgen::generate_simple_self_signed(vec!["swiftwave.local".to_string()])
         .map_err(|e| SwiftWaveError::Internal(format!("TLS cert generation failed: {e}")))?;
 
-    let cert_der = CertificateDer::from(cert.serialize_der()
-        .map_err(|e| SwiftWaveError::Internal(format!("TLS cert serialization failed: {e}")))?);
-    let key_der = PrivateKeyDer::try_from(cert.serialize_private_key_der())
+    let cert_der = CertificateDer::from(cert.cert.der().to_vec());
+    let key_der = PrivateKeyDer::try_from(cert.key_pair.serialize_der())
         .map_err(|e| SwiftWaveError::Internal(format!("TLS key serialization failed: {e}")))?;
 
     Ok((cert_der, key_der))

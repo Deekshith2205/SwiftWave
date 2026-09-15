@@ -30,6 +30,7 @@ bs58             = { workspace = true }
 quinn            = { workspace = true }
 rcgen            = { workspace = true }
 rustls           = { workspace = true }
+urlencoding      = "2.1"
 
 
 

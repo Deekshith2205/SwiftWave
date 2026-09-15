@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
 
-use crate::device::DeviceId;
+use crate::device::identity::PublicKeyFingerprint;
 use crate::storage::metadata::FileMetadata;
 
 /// Unique identifier for a transfer session (UUID v4).
@@ -41,7 +41,7 @@ pub struct TransferSession {
     /// Transfer direction.
     pub direction: TransferDirection,
     /// Fingerprint of the remote peer's static public key.
-    pub peer_id: DeviceId,
+    pub peer_id: PublicKeyFingerprint,
     /// Network address of the remote peer.
     pub peer_address: SocketAddr,
     /// Files included in this transfer.
@@ -57,7 +57,7 @@ pub struct TransferSession {
 impl TransferSession {
     /// Create a new outbound transfer session.
     pub fn new_outbound(
-        peer_id: DeviceId,
+        peer_id: PublicKeyFingerprint,
         peer_address: SocketAddr,
         files: Vec<FileMetadata>,
         chunk_size: usize,
@@ -77,7 +77,7 @@ impl TransferSession {
 
     /// Create a new inbound transfer session.
     pub fn new_inbound(
-        peer_id: DeviceId,
+        peer_id: PublicKeyFingerprint,
         peer_address: SocketAddr,
         files: Vec<FileMetadata>,
         chunk_size: usize,
