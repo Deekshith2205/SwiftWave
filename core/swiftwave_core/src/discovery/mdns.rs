@@ -54,17 +54,17 @@ impl SwiftWaveTxtRecord {
         if name_str.is_empty() {
             return None;
         }
-        
+
         let mut display_name = name_str.clone();
-        
+
         // DNS-SD limits total TXT to 65535, but individual key-value pairs are up to 255 bytes.
         // Truncate cleanly on UTF-8 char boundary if it somehow exceeds our safe application limit.
         if display_name.len() > MAX_DISPLAY_NAME_LEN {
-            if let Some(idx) = display_name.char_indices().map(|(i, _)| i).find(|&i| i > MAX_DISPLAY_NAME_LEN) {
-                display_name.truncate(idx);
-            } else {
-                display_name.truncate(MAX_DISPLAY_NAME_LEN);
+            let mut end = MAX_DISPLAY_NAME_LEN;
+            while !display_name.is_char_boundary(end) {
+                end -= 1;
             }
+            display_name.truncate(end);
         }
 
         Some(Self {
@@ -106,10 +106,14 @@ impl PeerRegistry {
         }
     }
 
-    pub fn handle_resolved(&mut self, fullname: String, peer: DiscoveredPeer) -> Vec<DiscoveryEvent> {
+    pub fn handle_resolved(
+        &mut self,
+        fullname: String,
+        peer: DiscoveredPeer,
+    ) -> Vec<DiscoveryEvent> {
         let mut events = Vec::new();
         let fp = peer.fingerprint.clone();
-        
+
         // Record the exact mDNS service fullname -> claimed fingerprint mapping
         if let Some(old_fp) = self.services.insert(fullname, fp.clone()) {
             if old_fp != fp {
@@ -155,7 +159,7 @@ pub struct MdnsDiscovery {
     display_name: String,
     /// QUIC port this device is listening on.
     quic_port: u16,
-    
+
     /// Handle to the underlying mDNS daemon.
     daemon: Option<ServiceDaemon>,
     /// Handle to the background Tokio task processing mDNS events.
@@ -182,8 +186,9 @@ impl Discovery for MdnsDiscovery {
             return Ok(()); // Already running
         }
 
-        let daemon = ServiceDaemon::new().map_err(|e| SwiftWaveError::Platform(format!("Failed to start mDNS daemon: {}", e)))?;
-        
+        let daemon = ServiceDaemon::new()
+            .map_err(|e| SwiftWaveError::Platform(format!("Failed to start mDNS daemon: {}", e)))?;
+
         let local_fp = self.identity_fingerprint.clone();
         let instance_name = local_fp.short(); // Bounded deterministic instance name
 
@@ -198,27 +203,36 @@ impl Discovery for MdnsDiscovery {
             SWIFTWAVE_SERVICE_TYPE,
             &instance_name,
             &host_name,
-            "", 
+            "",
             self.quic_port,
             txt_record.to_properties(),
         ) {
             Ok(info) => info,
             Err(e) => {
                 let _ = daemon.shutdown();
-                return Err(SwiftWaveError::Platform(format!("Invalid mDNS service info: {}", e)));
+                return Err(SwiftWaveError::Platform(format!(
+                    "Invalid mDNS service info: {}",
+                    e
+                )));
             }
         };
 
         if let Err(e) = daemon.register(service_info) {
             let _ = daemon.shutdown();
-            return Err(SwiftWaveError::Platform(format!("Failed to register mDNS service: {}", e)));
+            return Err(SwiftWaveError::Platform(format!(
+                "Failed to register mDNS service: {}",
+                e
+            )));
         }
 
         let receiver = match daemon.browse(SWIFTWAVE_SERVICE_TYPE) {
             Ok(r) => r,
             Err(e) => {
                 let _ = daemon.shutdown();
-                return Err(SwiftWaveError::Platform(format!("Failed to browse mDNS: {}", e)));
+                return Err(SwiftWaveError::Platform(format!(
+                    "Failed to browse mDNS: {}",
+                    e
+                )));
             }
         };
 
@@ -233,7 +247,7 @@ impl Discovery for MdnsDiscovery {
                         for prop in txt_map.iter() {
                             txt_map_str.insert(prop.key().to_string(), prop.val_str().to_string());
                         }
-                        
+
                         let parsed = match SwiftWaveTxtRecord::parse(&txt_map_str) {
                             Some(r) => r,
                             None => continue,
@@ -251,11 +265,14 @@ impl Discovery for MdnsDiscovery {
                                     Ok(parsed_ip) => SocketAddr::new(parsed_ip, info.get_port()),
                                     Err(_) => continue,
                                 }
-                            },
+                            }
                             None => continue,
                         };
 
-                        let now_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                        let now_unix = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs();
 
                         let peer = DiscoveredPeer {
                             fingerprint: parsed.fingerprint.clone(),
@@ -263,7 +280,7 @@ impl Discovery for MdnsDiscovery {
                             address,
                             medium: DiscoveryMedium::MdnsUdp,
                             rssi: None,
-                            protocol_version: 1, 
+                            protocol_version: 1,
                             last_seen: now_unix,
                         };
 
@@ -271,12 +288,12 @@ impl Discovery for MdnsDiscovery {
                         for evt in registry.handle_resolved(fullname, peer) {
                             let _ = tx.send(evt).await;
                         }
-                    },
+                    }
                     ServiceEvent::ServiceRemoved(_type, fullname) => {
                         for evt in registry.handle_removed(&fullname) {
                             let _ = tx.send(evt).await;
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -298,4 +315,3 @@ impl Discovery for MdnsDiscovery {
         Ok(())
     }
 }
-
