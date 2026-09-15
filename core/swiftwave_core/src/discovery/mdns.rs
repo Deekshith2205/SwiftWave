@@ -92,6 +92,61 @@ use tokio::task::JoinHandle;
 use crate::discovery::{DiscoveredPeer, Discovery, DiscoveryEvent, DiscoveryMedium};
 use crate::error::{Result, SwiftWaveError};
 
+/// Deterministic state machine for mDNS discovery.
+pub struct PeerRegistry {
+    pub services: HashMap<String, PublicKeyFingerprint>,
+    pub peers: HashMap<PublicKeyFingerprint, DiscoveredPeer>,
+}
+
+impl PeerRegistry {
+    pub fn new() -> Self {
+        Self {
+            services: HashMap::new(),
+            peers: HashMap::new(),
+        }
+    }
+
+    pub fn handle_resolved(&mut self, fullname: String, peer: DiscoveredPeer) -> Vec<DiscoveryEvent> {
+        let mut events = Vec::new();
+        let fp = peer.fingerprint.clone();
+        
+        // Record the exact mDNS service fullname -> claimed fingerprint mapping
+        if let Some(old_fp) = self.services.insert(fullname, fp.clone()) {
+            if old_fp != fp {
+                // Service reassigned to a different fingerprint
+                if !self.services.values().any(|f| f == &old_fp) {
+                    self.peers.remove(&old_fp);
+                    events.push(DiscoveryEvent::PeerLost(old_fp));
+                }
+            }
+        }
+
+        // Insert or update peer
+        if let Some(existing) = self.peers.get(&fp) {
+            if existing.address != peer.address || existing.display_name != peer.display_name {
+                self.peers.insert(fp, peer.clone());
+                events.push(DiscoveryEvent::PeerFound(peer));
+            }
+        } else {
+            self.peers.insert(fp, peer.clone());
+            events.push(DiscoveryEvent::PeerFound(peer));
+        }
+
+        events
+    }
+
+    pub fn handle_removed(&mut self, fullname: &str) -> Vec<DiscoveryEvent> {
+        let mut events = Vec::new();
+        if let Some(fp) = self.services.remove(fullname) {
+            if !self.services.values().any(|f| f == &fp) {
+                self.peers.remove(&fp);
+                events.push(DiscoveryEvent::PeerLost(fp));
+            }
+        }
+        events
+    }
+}
+
 /// The local mDNS discovery orchestrator.
 pub struct MdnsDiscovery {
     /// Local identity.
@@ -137,30 +192,43 @@ impl Discovery for MdnsDiscovery {
             display_name: self.display_name.clone(),
         };
 
-        // Construct host name (mdns-sd requires it to end with .local.)
         let host_name = format!("{}.local.", instance_name);
 
-        let service_info = ServiceInfo::new(
+        let service_info = match ServiceInfo::new(
             SWIFTWAVE_SERVICE_TYPE,
             &instance_name,
             &host_name,
-            "", // no explicit IP array, daemon resolves it
+            "", 
             self.quic_port,
             txt_record.to_properties(),
-        ).map_err(|e| SwiftWaveError::Platform(format!("Invalid mDNS service info: {}", e)))?;
+        ) {
+            Ok(info) => info,
+            Err(e) => {
+                let _ = daemon.shutdown();
+                return Err(SwiftWaveError::Platform(format!("Invalid mDNS service info: {}", e)));
+            }
+        };
 
-        daemon.register(service_info).map_err(|e| SwiftWaveError::Platform(format!("Failed to register mDNS service: {}", e)))?;
+        if let Err(e) = daemon.register(service_info) {
+            let _ = daemon.shutdown();
+            return Err(SwiftWaveError::Platform(format!("Failed to register mDNS service: {}", e)));
+        }
 
-        let receiver = daemon.browse(SWIFTWAVE_SERVICE_TYPE).map_err(|e| SwiftWaveError::Platform(format!("Failed to browse mDNS: {}", e)))?;
+        let receiver = match daemon.browse(SWIFTWAVE_SERVICE_TYPE) {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = daemon.shutdown();
+                return Err(SwiftWaveError::Platform(format!("Failed to browse mDNS: {}", e)));
+            }
+        };
 
         let task_handle = tokio::spawn(async move {
-            let mut registry: HashMap<PublicKeyFingerprint, DiscoveredPeer> = HashMap::new();
+            let mut registry = PeerRegistry::new();
 
             while let Ok(event) = receiver.recv_async().await {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
-                        // Parse UNTRUSTED TXT records
-                        let txt_map = info.get_properties().clone(); // get_properties returns &ServiceProperties
+                        let txt_map = info.get_properties().clone();
                         let mut txt_map_str = std::collections::HashMap::new();
                         for prop in txt_map.iter() {
                             txt_map_str.insert(prop.key().to_string(), prop.val_str().to_string());
@@ -168,22 +236,17 @@ impl Discovery for MdnsDiscovery {
                         
                         let parsed = match SwiftWaveTxtRecord::parse(&txt_map_str) {
                             Some(r) => r,
-                            None => continue, // Malformed, ignore gracefully
+                            None => continue,
                         };
 
-                        // Filter self
                         if parsed.fingerprint == local_fp {
                             continue;
                         }
 
-                        // Determine the endpoint (prefer IPv4 if both available for simplicity, or grab any)
                         let address = match info.get_addresses().iter().next() {
                             Some(ip) => {
-                                // ip is usually a ScopedIp or IpAddr. We can format it to bypass strict type mismatch,
-                                // but we need an IpAddr. We can use the Display impl and parse back to IpAddr.
-                                // Actually, ScopedIp usually derefs to IpAddr or has .to_string() returning just the IP if no scope.
                                 let ip_str = ip.to_string();
-                                let ip_cleaned = ip_str.split('%').next().unwrap_or(&ip_str); // remove scope id for parsing if present
+                                let ip_cleaned = ip_str.split('%').next().unwrap_or(&ip_str);
                                 match ip_cleaned.parse::<std::net::IpAddr>() {
                                     Ok(parsed_ip) => SocketAddr::new(parsed_ip, info.get_port()),
                                     Err(_) => continue,
@@ -200,47 +263,21 @@ impl Discovery for MdnsDiscovery {
                             address,
                             medium: DiscoveryMedium::MdnsUdp,
                             rssi: None,
-                            protocol_version: 1, // Parsed successfully, so v=1
+                            protocol_version: 1, 
                             last_seen: now_unix,
                         };
 
-                        // Registry logic
-                        if let Some(existing) = registry.get(&parsed.fingerprint) {
-                            // Update if endpoint or metadata changed
-                            if existing.address != peer.address || existing.display_name != peer.display_name {
-                                registry.insert(parsed.fingerprint.clone(), peer.clone());
-                                let _ = tx.send(DiscoveryEvent::PeerFound(peer)).await;
-                            }
-                        } else {
-                            // First discovery or reappearance
-                            registry.insert(parsed.fingerprint.clone(), peer.clone());
-                            let _ = tx.send(DiscoveryEvent::PeerFound(peer)).await;
+                        let fullname = info.get_fullname().to_string();
+                        for evt in registry.handle_resolved(fullname, peer) {
+                            let _ = tx.send(evt).await;
                         }
                     },
                     ServiceEvent::ServiceRemoved(_type, fullname) => {
-                        // fullname is instance_name._swiftwave._udp.local.
-                        // We can just iterate the registry and remove any that might match?
-                        // Actually, fullname starts with instance_name. Our instance name is short_hash.
-                        let instance_name = fullname.split('.').next().unwrap_or("");
-                        
-                        // Find matching peer (since instance_name is derived from short hash, but could collide).
-                        // Best effort removal by prefix match if necessary, or just check all peers.
-                        registry.retain(|fp, _peer| {
-                            let match_instance = fp.short() == instance_name;
-                            if match_instance {
-                                let _ = tx.try_send(DiscoveryEvent::PeerLost(fp.clone()));
-                                false // remove from registry
-                            } else {
-                                true
-                            }
-                        });
+                        for evt in registry.handle_removed(&fullname) {
+                            let _ = tx.send(evt).await;
+                        }
                     },
-                    ServiceEvent::SearchStarted(_) | ServiceEvent::SearchStopped(_) | ServiceEvent::ServiceFound(_, _) => {
-                        // Ignore, wait for ServiceResolved
-                    },
-                    _ => {
-                        // Non-exhaustive enum fallback
-                    }
+                    _ => {}
                 }
             }
         });
