@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/app.dart';
 
-
 /// Entry point for SwiftWave.
 void main() {
   // Ensure Flutter engine is initialised before any plugin/FFI calls.
