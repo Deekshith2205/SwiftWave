@@ -161,10 +161,7 @@ impl ChunkWriter {
 /// Compute per-chunk BLAKE3 hashes for an entire file with bounded memory.
 ///
 /// Returns a vector of hashes in order, one per chunk.
-pub async fn compute_chunk_hashes(
-    path: &Path,
-    chunk_size: usize,
-) -> Result<(Vec<Hash>, Hash)> {
+pub async fn compute_chunk_hashes(path: &Path, chunk_size: usize) -> Result<(Vec<Hash>, Hash)> {
     let mut reader = ChunkReader::open(path, chunk_size).await?;
     let mut chunk_hashes = Vec::new();
     let mut file_hasher = StreamingHasher::new();

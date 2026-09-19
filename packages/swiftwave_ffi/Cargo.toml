@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 name = "swiftwave_ffi"
 # cdylib  → .so / .dll / .dylib loaded by Dart FFI at runtime
 # staticlib → .a / .lib for static linking (iOS / macOS app bundle)
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 swiftwave_core  = { path = "../../core/swiftwave_core" }

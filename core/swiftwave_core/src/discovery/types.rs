@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-use crate::device::DeviceId;
+use crate::device::identity::PublicKeyFingerprint;
 
 /// The network medium over which a peer was discovered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub enum DiscoveryMedium {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredPeer {
     /// Stable fingerprint of the peer's static public key.
-    pub device_id: DeviceId,
+    pub device_id: PublicKeyFingerprint,
     /// Human-readable device name advertised by the peer.
     pub display_name: String,
     /// Network address to connect to (may be a link-local IPv6 address).
@@ -53,5 +53,5 @@ pub enum DiscoveryEvent {
     /// A new peer appeared or an existing record was updated.
     PeerFound(DiscoveredPeer),
     /// A peer's advertisement expired or it disconnected.
-    PeerLost(DeviceId),
+    PeerLost(PublicKeyFingerprint),
 }

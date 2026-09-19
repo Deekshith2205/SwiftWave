@@ -6,7 +6,7 @@ pub mod resume;
 pub mod scheduler;
 pub mod session;
 
-pub use chunk::{ChunkMetadata, generate_chunk_plan};
+pub use chunk::{generate_chunk_plan, ChunkMetadata};
 pub use progress::{ProgressSnapshot, ProgressTracker};
 pub use resume::ResumeBitmap;
 pub use scheduler::{TransferScheduler, TransferState};

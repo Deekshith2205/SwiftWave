@@ -89,7 +89,11 @@ impl Default for StreamingHasher {
 /// nonces deterministically from the chunk position to guarantee uniqueness
 /// within a session. Each transfer uses a freshly negotiated session key, so
 /// nonces never repeat across sessions.
-pub fn derive_chunk_nonce(transfer_id: &[u8], file_id: &[u8], chunk_index: u64) -> [u8; AEAD_NONCE_LEN] {
+pub fn derive_chunk_nonce(
+    transfer_id: &[u8],
+    file_id: &[u8],
+    chunk_index: u64,
+) -> [u8; AEAD_NONCE_LEN] {
     let mut hasher = blake3::Hasher::new_derive_key("swiftwave chunk nonce v1");
     hasher.update(transfer_id);
     hasher.update(file_id);

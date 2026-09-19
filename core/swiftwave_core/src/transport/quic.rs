@@ -33,9 +33,8 @@ pub fn generate_self_signed_cert() -> Result<(CertificateDer<'static>, PrivateKe
     let cert = rcgen::generate_simple_self_signed(vec!["swiftwave.local".to_string()])
         .map_err(|e| SwiftWaveError::Internal(format!("TLS cert generation failed: {e}")))?;
 
-    let cert_der = CertificateDer::from(cert.serialize_der()
-        .map_err(|e| SwiftWaveError::Internal(format!("TLS cert serialization failed: {e}")))?);
-    let key_der = PrivateKeyDer::try_from(cert.serialize_private_key_der())
+    let cert_der = CertificateDer::from(cert.cert.der().to_vec());
+    let key_der = PrivateKeyDer::try_from(cert.key_pair.serialize_der())
         .map_err(|e| SwiftWaveError::Internal(format!("TLS key serialization failed: {e}")))?;
 
     Ok((cert_der, key_der))
@@ -54,7 +53,7 @@ pub async fn build_server_endpoint(bind_addr: SocketAddr) -> Result<Endpoint> {
 
     let server_config = ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)
-            .map_err(|e| SwiftWaveError::Internal(format!("QUIC server config: {e}")))?
+            .map_err(|e| SwiftWaveError::Internal(format!("QUIC server config: {e}")))?,
     ));
 
     Endpoint::server(server_config, bind_addr)
@@ -75,12 +74,11 @@ pub async fn build_client_endpoint() -> Result<Endpoint> {
 
     let client_config = ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
-            .map_err(|e| SwiftWaveError::Internal(format!("QUIC client config: {e}")))?
+            .map_err(|e| SwiftWaveError::Internal(format!("QUIC client config: {e}")))?,
     ));
 
-    let mut endpoint =
-        Endpoint::client("0.0.0.0:0".parse().unwrap())
-            .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
+    let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
+        .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
     endpoint.set_default_client_config(client_config);
     Ok(endpoint)
 }

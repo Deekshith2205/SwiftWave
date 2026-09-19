@@ -2,7 +2,7 @@
 //!
 //! SwiftWave core delegates the actual persistence of sensitive identity material
 //! (e.g., the X25519 static private key) to the host platform via this trait.
-//! 
+//!
 //! # Platform Implementations
 //! - **Android**: Android Keystore system.
 //! - **iOS/macOS**: Keychain Services.
@@ -29,7 +29,7 @@ pub trait SecureStorage: Send + Sync {
     /// Load a secret byte array by key.
     /// Returns `Ok(None)` if the key does not exist.
     fn load_secret(&self, key: &str) -> Result<Option<Vec<u8>>>;
-    
+
     /// Delete a secret by key.
     fn delete_secret(&self, key: &str) -> Result<()>;
 }
@@ -43,8 +43,8 @@ pub trait SecureStorage: Send + Sync {
 #[cfg(feature = "fallback_storage")]
 pub mod fallback {
     use super::*;
-    use std::path::{Path, PathBuf};
     use std::collections::HashMap;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     /// File-based fallback storage.
@@ -58,13 +58,12 @@ pub mod fallback {
         pub fn new(path: impl AsRef<Path>) -> Result<Self> {
             let path = path.as_ref().to_path_buf();
             let mut cache = HashMap::new();
-            
+
             if path.exists() {
-                let data = std::fs::read_to_string(&path)
-                    .map_err(SwiftWaveError::Io)?;
-                let hex_map: HashMap<String, String> = serde_json::from_str(&data)
-                    .map_err(SwiftWaveError::Serialisation)?;
-                
+                let data = std::fs::read_to_string(&path).map_err(SwiftWaveError::Io)?;
+                let hex_map: HashMap<String, String> =
+                    serde_json::from_str(&data).map_err(SwiftWaveError::Serialisation)?;
+
                 for (k, v) in hex_map {
                     if let Ok(bytes) = hex::decode(&v) {
                         cache.insert(k, bytes);
@@ -82,16 +81,16 @@ pub mod fallback {
             if let Some(parent) = self.path.parent() {
                 std::fs::create_dir_all(parent).map_err(SwiftWaveError::Io)?;
             }
-            
+
             let mut hex_map = HashMap::new();
             for (k, v) in cache {
                 hex_map.insert(k.clone(), hex::encode(v));
             }
-            
-            let json = serde_json::to_string_pretty(&hex_map)
-                .map_err(SwiftWaveError::Serialisation)?;
+
+            let json =
+                serde_json::to_string_pretty(&hex_map).map_err(SwiftWaveError::Serialisation)?;
             std::fs::write(&self.path, json).map_err(SwiftWaveError::Io)?;
-            
+
             // Attempt to restrict file permissions on Unix.
             #[cfg(unix)]
             {
@@ -101,7 +100,7 @@ pub mod fallback {
                     let _ = std::fs::set_permissions(&self.path, perms);
                 }
             }
-            
+
             Ok(())
         }
     }
