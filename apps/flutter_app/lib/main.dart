@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/app.dart';
-import 'core/ffi/swiftwave_native.dart';
+
 
 /// Entry point for SwiftWave.
 void main() {

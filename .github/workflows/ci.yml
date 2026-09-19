@@ -23,7 +23,11 @@ jobs:
         run: cargo fmt --check
       - name: Cargo Check
         run: cargo check --workspace
-      - name: Cargo Test
+      - name: Cargo Test (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --workspace --exclude swiftwave_storage_windows
+      - name: Cargo Test (Windows)
+        if: matrix.os == 'windows-latest'
         run: cargo test --workspace
 
   flutter:

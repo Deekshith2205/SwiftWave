@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart';
 
 // ---------------------------------------------------------------------------
 // Native function typedefs
@@ -82,7 +83,7 @@ class SwiftWaveNative {
     try {
       _lib = DynamicLibrary.open(_libraryPath());
     } catch (e) {
-      print(
+      debugPrint(
         '[SwiftWaveNative] FFI library not found. Running in degraded mode. Error: $e',
       );
       return;
@@ -165,7 +166,7 @@ class SwiftWaveNative {
     final status = _shutdown(_handle);
     if (status != 0 && status != 9) {
       // 9 = AlreadyShutdown
-      print('[SwiftWaveNative] Warning: shutdown returned status $status');
+      debugPrint('[SwiftWaveNative] Warning: shutdown returned status $status');
     }
   }
 
