@@ -27,11 +27,8 @@ class SwiftWaveApp extends ConsumerWidget {
       builder: (context, child) {
         return runtimeAsync.when(
           data: (_) => child!,
-          loading: () => const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
-          ),
+          loading: () =>
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
           error: (err, stack) => Scaffold(
             body: Center(
               child: Padding(
@@ -39,7 +36,11 @@ class SwiftWaveApp extends ConsumerWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 48,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Failed to initialize secure storage.\n\nError: $err',
@@ -56,4 +57,3 @@ class SwiftWaveApp extends ConsumerWidget {
     );
   }
 }
-

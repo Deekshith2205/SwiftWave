@@ -23,10 +23,19 @@ abstract final class SwiftWaveTheme {
       ),
       scaffoldBackgroundColor: SwiftWaveColors.darkSurface,
       textTheme: textTheme.copyWith(
-        titleLarge: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600, letterSpacing: -0.5),
-        titleMedium: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        bodyLarge: textTheme.bodyLarge?.copyWith(color: SwiftWaveColors.darkTextHigh),
-        bodyMedium: textTheme.bodyMedium?.copyWith(color: SwiftWaveColors.darkTextMedium),
+        titleLarge: textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.5,
+        ),
+        titleMedium: textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        bodyLarge: textTheme.bodyLarge?.copyWith(
+          color: SwiftWaveColors.darkTextHigh,
+        ),
+        bodyMedium: textTheme.bodyMedium?.copyWith(
+          color: SwiftWaveColors.darkTextMedium,
+        ),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: SwiftWaveColors.darkSurface,
@@ -45,7 +54,9 @@ abstract final class SwiftWaveTheme {
         backgroundColor: SwiftWaveColors.darkSurfaceElevated,
         indicatorColor: SwiftWaveColors.accentMuted,
         selectedIconTheme: IconThemeData(color: SwiftWaveColors.accent),
-        unselectedIconTheme: IconThemeData(color: SwiftWaveColors.darkTextMedium),
+        unselectedIconTheme: IconThemeData(
+          color: SwiftWaveColors.darkTextMedium,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: SwiftWaveColors.darkSurfaceElevated,
@@ -83,10 +94,19 @@ abstract final class SwiftWaveTheme {
       ),
       scaffoldBackgroundColor: SwiftWaveColors.lightSurface,
       textTheme: textTheme.copyWith(
-        titleLarge: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600, letterSpacing: -0.5),
-        titleMedium: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-        bodyLarge: textTheme.bodyLarge?.copyWith(color: SwiftWaveColors.lightTextHigh),
-        bodyMedium: textTheme.bodyMedium?.copyWith(color: SwiftWaveColors.lightTextMedium),
+        titleLarge: textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.5,
+        ),
+        titleMedium: textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        bodyLarge: textTheme.bodyLarge?.copyWith(
+          color: SwiftWaveColors.lightTextHigh,
+        ),
+        bodyMedium: textTheme.bodyMedium?.copyWith(
+          color: SwiftWaveColors.lightTextMedium,
+        ),
       ),
       appBarTheme: AppBarTheme(
         backgroundColor: SwiftWaveColors.lightSurface,
@@ -103,9 +123,12 @@ abstract final class SwiftWaveTheme {
       ),
       navigationRailTheme: const NavigationRailThemeData(
         backgroundColor: SwiftWaveColors.lightSurfaceElevated,
-        indicatorColor: SwiftWaveColors.accentMuted, // Uses alpha, looks fine in light mode
+        indicatorColor:
+            SwiftWaveColors.accentMuted, // Uses alpha, looks fine in light mode
         selectedIconTheme: IconThemeData(color: SwiftWaveColors.accentDark),
-        unselectedIconTheme: IconThemeData(color: SwiftWaveColors.lightTextMedium),
+        unselectedIconTheme: IconThemeData(
+          color: SwiftWaveColors.lightTextMedium,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: SwiftWaveColors.lightSurfaceElevated,

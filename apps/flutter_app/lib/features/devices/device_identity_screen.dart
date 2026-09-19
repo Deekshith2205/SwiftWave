@@ -28,11 +28,17 @@ class DeviceIdentityScreen extends ConsumerWidget {
         child: Column(
           children: [
             const SizedBox(height: 32),
-            SwiftWaveAvatar(deviceName: device.displayName, size: 80, isTrusted: true),
+            SwiftWaveAvatar(
+              deviceName: device.displayName,
+              size: 80,
+              isTrusted: true,
+            ),
             const SizedBox(height: 24),
             Text(
               device.displayName,
-              style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(

@@ -8,7 +8,8 @@ import 'package:ffi/ffi.dart';
 
 final class SwiftWaveHandle extends Opaque {}
 
-typedef _SwiftWaveCreateNative = Pointer<SwiftWaveHandle> Function(Pointer<Utf8>);
+typedef _SwiftWaveCreateNative =
+    Pointer<SwiftWaveHandle> Function(Pointer<Utf8>);
 typedef _SwiftWaveCreateDart = Pointer<SwiftWaveHandle> Function(Pointer<Utf8>);
 
 typedef _SwiftWaveDestroyNative = Void Function(Pointer<SwiftWaveHandle>);
@@ -20,8 +21,10 @@ typedef _SwiftWaveInitDart = int Function(Pointer<SwiftWaveHandle>);
 typedef _SwiftWaveShutdownNative = Int32 Function(Pointer<SwiftWaveHandle>);
 typedef _SwiftWaveShutdownDart = int Function(Pointer<SwiftWaveHandle>);
 
-typedef _SwiftWaveGetDeviceIdNative = Pointer<Utf8> Function(Pointer<SwiftWaveHandle>);
-typedef _SwiftWaveGetDeviceIdDart = Pointer<Utf8> Function(Pointer<SwiftWaveHandle>);
+typedef _SwiftWaveGetDeviceIdNative =
+    Pointer<Utf8> Function(Pointer<SwiftWaveHandle>);
+typedef _SwiftWaveGetDeviceIdDart =
+    Pointer<Utf8> Function(Pointer<SwiftWaveHandle>);
 
 typedef _SwiftWaveFreeStringNative = Void Function(Pointer<Utf8>);
 typedef _SwiftWaveFreeStringDart = void Function(Pointer<Utf8>);
@@ -74,23 +77,44 @@ class SwiftWaveNative {
   /// Load the library and lookup symbols globally.
   static void _load() {
     if (_isLoaded) return;
-    
+
     // Fallback gracefully if FFI lib isn't built yet (e.g. during UI-only tests)
     try {
       _lib = DynamicLibrary.open(_libraryPath());
     } catch (e) {
-      print('[SwiftWaveNative] FFI library not found. Running in degraded mode. Error: $e');
+      print(
+        '[SwiftWaveNative] FFI library not found. Running in degraded mode. Error: $e',
+      );
       return;
     }
 
     final lib = _lib!;
-    _create = lib.lookupFunction<_SwiftWaveCreateNative, _SwiftWaveCreateDart>('swiftwave_create');
-    _destroy = lib.lookupFunction<_SwiftWaveDestroyNative, _SwiftWaveDestroyDart>('swiftwave_destroy');
-    _init = lib.lookupFunction<_SwiftWaveInitNative, _SwiftWaveInitDart>('swiftwave_init');
-    _shutdown = lib.lookupFunction<_SwiftWaveShutdownNative, _SwiftWaveShutdownDart>('swiftwave_shutdown');
-    _getDeviceId = lib.lookupFunction<_SwiftWaveGetDeviceIdNative, _SwiftWaveGetDeviceIdDart>('swiftwave_get_device_id');
-    _freeString = lib.lookupFunction<_SwiftWaveFreeStringNative, _SwiftWaveFreeStringDart>('swiftwave_free_string');
-    _version = lib.lookupFunction<_SwiftWaveVersionNative, _SwiftWaveVersionDart>('swiftwave_version');
+    _create = lib.lookupFunction<_SwiftWaveCreateNative, _SwiftWaveCreateDart>(
+      'swiftwave_create',
+    );
+    _destroy = lib
+        .lookupFunction<_SwiftWaveDestroyNative, _SwiftWaveDestroyDart>(
+          'swiftwave_destroy',
+        );
+    _init = lib.lookupFunction<_SwiftWaveInitNative, _SwiftWaveInitDart>(
+      'swiftwave_init',
+    );
+    _shutdown = lib
+        .lookupFunction<_SwiftWaveShutdownNative, _SwiftWaveShutdownDart>(
+          'swiftwave_shutdown',
+        );
+    _getDeviceId = lib
+        .lookupFunction<_SwiftWaveGetDeviceIdNative, _SwiftWaveGetDeviceIdDart>(
+          'swiftwave_get_device_id',
+        );
+    _freeString = lib
+        .lookupFunction<_SwiftWaveFreeStringNative, _SwiftWaveFreeStringDart>(
+          'swiftwave_free_string',
+        );
+    _version = lib
+        .lookupFunction<_SwiftWaveVersionNative, _SwiftWaveVersionDart>(
+          'swiftwave_version',
+        );
 
     _isLoaded = true;
   }
@@ -139,7 +163,8 @@ class SwiftWaveNative {
     if (_handle == nullptr) return;
 
     final status = _shutdown(_handle);
-    if (status != 0 && status != 9) { // 9 = AlreadyShutdown
+    if (status != 0 && status != 9) {
+      // 9 = AlreadyShutdown
       print('[SwiftWaveNative] Warning: shutdown returned status $status');
     }
   }
@@ -152,7 +177,7 @@ class SwiftWaveNative {
       _isDestroyed = true;
       return;
     }
-    
+
     if (_handle != nullptr) {
       _destroy(_handle);
       _handle = nullptr;
@@ -163,7 +188,7 @@ class SwiftWaveNative {
   /// Get the current version of the native library.
   String getVersion() {
     if (!_isLoaded) return '0.0.0-stub';
-    
+
     final ptr = _version();
     if (ptr == nullptr) return 'unknown';
     return ptr.toDartString();

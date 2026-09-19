@@ -11,10 +11,5 @@ void main() {
   // The application relies on swiftWaveRuntimeProvider to eagerly or lazily
   // bootstrap the SwiftWave runtime.
 
-
-  runApp(
-    const ProviderScope(
-      child: SwiftWaveApp(),
-    ),
-  );
+  runApp(const ProviderScope(child: SwiftWaveApp()));
 }

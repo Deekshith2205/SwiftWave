@@ -34,10 +34,7 @@ class SecurityVerificationScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 48),
-            Text(
-              'Identity Fingerprint',
-              style: theme.textTheme.titleSmall,
-            ),
+            Text('Identity Fingerprint', style: theme.textTheme.titleSmall),
             const SizedBox(height: 8),
             Text(
               '3F:8A:22:9C:11:BB:CC',

@@ -28,27 +28,31 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: Text(settings.downloadPath),
             onTap: () {},
           ),
-          
+
           _buildSectionHeader(context, 'Transfer'),
           SwitchListTile(
             title: const Text('Auto-accept from trusted'),
             subtitle: const Text('Skip prompt for verified devices'),
             value: settings.autoAcceptTrusted,
-            onChanged: (val) => notifier.updateSettings(settings.copyWith(autoAcceptTrusted: val)),
+            onChanged: (val) => notifier.updateSettings(
+              settings.copyWith(autoAcceptTrusted: val),
+            ),
           ),
           SwitchListTile(
             title: const Text('Compress before sending'),
             value: settings.enableCompression,
-            onChanged: (val) => notifier.updateSettings(settings.copyWith(enableCompression: val)),
+            onChanged: (val) => notifier.updateSettings(
+              settings.copyWith(enableCompression: val),
+            ),
           ),
-          
+
           _buildSectionHeader(context, 'Appearance'),
           ListTile(
             title: const Text('Theme'),
             subtitle: Text(settings.themeMode),
             onTap: () {},
           ),
-          
+
           _buildSectionHeader(context, 'About'),
           ListTile(
             title: const Text('About SwiftWave'),

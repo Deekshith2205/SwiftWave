@@ -28,7 +28,9 @@ class TransferHistoryScreen extends ConsumerWidget {
             child: Row(
               children: [
                 Icon(
-                  transfer.isSender ? Icons.upload_rounded : Icons.download_rounded,
+                  transfer.isSender
+                      ? Icons.upload_rounded
+                      : Icons.download_rounded,
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 16),
@@ -36,16 +38,31 @@ class TransferHistoryScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(transfer.fileName, style: theme.textTheme.titleSmall),
-                      Text('$sizeMB MB • ${DateTime.now().toString().split(' ')[0]}',
-                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                      Text(
+                        transfer.fileName,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      Text(
+                        '$sizeMB MB • ${DateTime.now().toString().split(' ')[0]}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 if (isSuccess)
-                  const Icon(Icons.check_circle_rounded, color: Colors.green, size: 20)
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    color: Colors.green,
+                    size: 20,
+                  )
                 else
-                  const Icon(Icons.error_outline_rounded, color: Colors.red, size: 20),
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: Colors.red,
+                    size: 20,
+                  ),
               ],
             ),
           );

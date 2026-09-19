@@ -21,7 +21,9 @@ class TransferDetailsScreen extends ConsumerWidget {
     );
 
     final totalSizeMB = (transfer.fileSize / 1000000).toStringAsFixed(1);
-    final currentSizeMB = (transfer.bytesTransferred / 1000000).toStringAsFixed(1);
+    final currentSizeMB = (transfer.bytesTransferred / 1000000).toStringAsFixed(
+      1,
+    );
     final isDone = transfer.status == TransferStatus.completed;
 
     return Scaffold(
@@ -33,13 +35,17 @@ class TransferDetailsScreen extends ConsumerWidget {
           children: [
             Text(
               transfer.fileName,
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               isDone ? 'Transfer complete' : 'Transferring...',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: isDone ? Colors.green : theme.colorScheme.onSurfaceVariant,
+                color: isDone
+                    ? Colors.green
+                    : theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 48),
@@ -58,7 +64,11 @@ class TransferDetailsScreen extends ConsumerWidget {
               ],
             ),
             const SizedBox(height: 32),
-            _buildInfoRow(context, 'Progress', '$currentSizeMB MB / $totalSizeMB MB'),
+            _buildInfoRow(
+              context,
+              'Progress',
+              '$currentSizeMB MB / $totalSizeMB MB',
+            ),
             const Divider(height: 32),
             _buildInfoRow(context, 'Speed', isDone ? '-' : '18.4 MB/s'),
             const Divider(height: 32),

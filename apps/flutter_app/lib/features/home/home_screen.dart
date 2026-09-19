@@ -82,14 +82,14 @@ class HomeScreen extends ConsumerWidget {
             // Nearby Devices
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 8,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'Nearby Devices',
-                      style: theme.textTheme.titleMedium,
-                    ),
+                    Text('Nearby Devices', style: theme.textTheme.titleMedium),
                     SwiftWaveGhostButton(
                       label: 'View All',
                       onPressed: () => context.push(AppRoutes.devices),
@@ -117,7 +117,9 @@ class HomeScreen extends ConsumerWidget {
                         child: _DeviceCard(device: device),
                       );
                     },
-                    childCount: nearbyDevices.length > 3 ? 3 : nearbyDevices.length,
+                    childCount: nearbyDevices.length > 3
+                        ? 3
+                        : nearbyDevices.length,
                   ),
                 ),
               ),
@@ -126,7 +128,10 @@ class HomeScreen extends ConsumerWidget {
             const SliverToBoxAdapter(child: SizedBox(height: 16)),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 8,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -146,7 +151,10 @@ class HomeScreen extends ConsumerWidget {
             if (activeTransfers.isEmpty)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 8,
+                  ),
                   child: Text(
                     'No active transfers',
                     style: theme.textTheme.bodyMedium?.copyWith(
@@ -159,19 +167,16 @@ class HomeScreen extends ConsumerWidget {
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final transfer = activeTransfers[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _ActiveTransferCard(transfer: transfer),
-                      );
-                    },
-                    childCount: activeTransfers.length,
-                  ),
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final transfer = activeTransfers[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _ActiveTransferCard(transfer: transfer),
+                    );
+                  }, childCount: activeTransfers.length),
                 ),
               ),
-              
+
             const SliverToBoxAdapter(child: SizedBox(height: 48)),
           ],
         ),
@@ -198,10 +203,7 @@ class _DeviceCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  device.displayName,
-                  style: theme.textTheme.titleSmall,
-                ),
+                Text(device.displayName, style: theme.textTheme.titleSmall),
                 Text(
                   'Nearby • Ready',
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -230,10 +232,12 @@ class _ActiveTransferCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final progress = transfer.progress;
-    
+
     // Formatting sizes (Mock)
     final totalSizeMB = (transfer.fileSize / 1000000).toStringAsFixed(1);
-    final currentSizeMB = (transfer.bytesTransferred / 1000000).toStringAsFixed(1);
+    final currentSizeMB = (transfer.bytesTransferred / 1000000).toStringAsFixed(
+      1,
+    );
 
     return SwiftWaveCard(
       onTap: () => context.push('${AppRoutes.transfers}/${transfer.id}'),
@@ -251,15 +255,17 @@ class _ActiveTransferCard extends StatelessWidget {
                 ),
               ),
               if (transfer.status == TransferStatus.completed)
-                const Icon(Icons.check_circle_rounded, color: Colors.green, size: 20),
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.green,
+                  size: 20,
+                ),
             ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
-                child: SwiftWaveLinearProgress(progress: progress),
-              ),
+              Expanded(child: SwiftWaveLinearProgress(progress: progress)),
               const SizedBox(width: 12),
               Text(
                 '${(progress * 100).toInt()}%',
@@ -297,7 +303,7 @@ class _ActiveTransferCard extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-          ]
+          ],
         ],
       ),
     );
