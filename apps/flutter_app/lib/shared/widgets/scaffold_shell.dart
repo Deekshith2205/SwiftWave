@@ -47,7 +47,8 @@ class ScaffoldShell extends StatelessWidget {
               children: [
                 NavigationRail(
                   selectedIndex: currentIndex,
-                  onDestinationSelected: (index) => _onItemTapped(index, context),
+                  onDestinationSelected: (index) =>
+                      _onItemTapped(index, context),
                   labelType: NavigationRailLabelType.all,
                   destinations: const [
                     NavigationRailDestination(

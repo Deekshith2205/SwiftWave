@@ -25,7 +25,7 @@ pub enum DiscoveryMedium {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredPeer {
     /// Stable fingerprint of the peer's static public key.
-    pub device_id: PublicKeyFingerprint,
+    pub fingerprint: PublicKeyFingerprint,
     /// Human-readable device name advertised by the peer.
     pub display_name: String,
     /// Network address to connect to (may be a link-local IPv6 address).

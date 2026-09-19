@@ -16,7 +16,9 @@ class AboutScreen extends StatelessWidget {
             const SizedBox(height: 24),
             Text(
               'SwiftWave',
-              style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(

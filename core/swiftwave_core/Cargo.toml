@@ -30,8 +30,8 @@ bs58             = { workspace = true }
 quinn            = { workspace = true }
 rcgen            = { workspace = true }
 rustls           = { workspace = true }
+mdns-sd          = "0.21"
 urlencoding      = "2.1"
-
 
 
 [dev-dependencies]

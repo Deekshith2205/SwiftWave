@@ -71,6 +71,5 @@ class Transfer {
   int get hashCode => id.hashCode;
 
   @override
-  String toString() =>
-      'Transfer(id: $id, file: $fileName, status: $status)';
+  String toString() => 'Transfer(id: $id, file: $fileName, status: $status)';
 }

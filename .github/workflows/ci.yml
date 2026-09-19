@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  rust:
+    name: Rust Checks
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Rust Format Check
+        run: cargo fmt --check
+      - name: Cargo Check
+        run: cargo check --workspace
+      - name: Cargo Test (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --workspace --exclude swiftwave_storage_windows
+      - name: Cargo Test (Windows)
+        if: matrix.os == 'windows-latest'
+        run: cargo test --workspace
+
+  flutter:
+    name: Flutter Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+      - name: Install Dependencies
+        working-directory: apps/flutter_app
+        run: flutter pub get
+      - name: Format
+        working-directory: apps/flutter_app
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        working-directory: apps/flutter_app
+        run: flutter analyze
+      - name: Test
+        working-directory: apps/flutter_app
+        run: flutter test

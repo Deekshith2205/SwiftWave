@@ -97,6 +97,24 @@ where
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+#[cfg(windows)]
+fn create_storage(
+    path: &str,
+) -> Option<std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage>> {
+    match swiftwave_storage_windows::WindowsSecureStorage::new(path) {
+        Ok(s) => Some(std::sync::Arc::new(s)),
+        Err(_) => None,
+    }
+}
+
+#[cfg(not(windows))]
+fn create_storage(
+    _path: &str,
+) -> Option<std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage>> {
+    // Other platforms not implemented yet. Do NOT fallback to mock.
+    None
+}
+
 /// Create a new, uninitialized SwiftWave runtime.
 ///
 /// Returns an opaque pointer to the `SwiftWaveHandle`.
@@ -115,25 +133,13 @@ pub extern "C" fn swiftwave_create(data_directory: *const c_char) -> *mut SwiftW
 
         let path_str = unsafe { std::ffi::CStr::from_ptr(data_directory) }.to_str();
 
-        let storage: std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage> =
-            match path_str {
-                Ok(path) if path.is_empty() => return std::ptr::null_mut(),
-                Ok(path) => {
-                    #[cfg(windows)]
-                    {
-                        match swiftwave_storage_windows::WindowsSecureStorage::new(path) {
-                            Ok(s) => std::sync::Arc::new(s),
-                            Err(_) => return std::ptr::null_mut(),
-                        }
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        // Other platforms not implemented yet. Do NOT fallback to mock.
-                        return std::ptr::null_mut();
-                    }
-                }
-                Err(_) => return std::ptr::null_mut(),
-            };
+        let storage = match path_str {
+            Ok(path) if !path.is_empty() => match create_storage(path) {
+                Some(s) => s,
+                None => return std::ptr::null_mut(),
+            },
+            _ => return std::ptr::null_mut(),
+        };
 
         match SwiftWaveRuntime::new_with_storage(storage) {
             Ok(runtime) => {

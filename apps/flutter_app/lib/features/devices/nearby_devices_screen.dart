@@ -32,8 +32,14 @@ class NearbyDevicesScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(device.displayName, style: Theme.of(context).textTheme.titleSmall),
-                      Text('Nearby', style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        device.displayName,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      Text(
+                        'Nearby',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   ),
                 ),

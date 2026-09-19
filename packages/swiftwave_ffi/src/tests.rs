@@ -11,6 +11,7 @@ fn test_version() {
     assert_eq!(version_str, "0.1.0");
 }
 
+#[cfg(windows)]
 #[test]
 fn test_lifecycle() {
     let dir = tempfile::tempdir().unwrap();
@@ -61,6 +62,19 @@ fn test_lifecycle() {
 
     // 10. Destroy
     swiftwave_destroy(handle);
+}
+
+#[cfg(not(windows))]
+#[test]
+fn test_create_unsupported_platform_returns_null() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    // 1. Create on unsupported platform should return null
+    let handle = swiftwave_create(c_path);
+    assert!(handle.is_null());
 }
 
 #[test]

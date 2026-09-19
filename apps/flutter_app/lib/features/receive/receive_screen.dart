@@ -28,14 +28,18 @@ class ReceiveScreen extends ConsumerWidget {
               const SizedBox(height: 24),
               Text(
                 'Aryan\'s Laptop',
-                style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 'wants to send you files',
-                style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
-              
+
               const SizedBox(height: 48),
               SwiftWaveCard(
                 child: Column(
@@ -44,7 +48,12 @@ class ReceiveScreen extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Files'),
-                        Text('12 items', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        Text(
+                          '12 items',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                     const Divider(height: 32),
@@ -52,7 +61,12 @@ class ReceiveScreen extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Total Size'),
-                        Text('452 MB', style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        Text(
+                          '452 MB',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                     const Divider(height: 32),
@@ -60,7 +74,12 @@ class ReceiveScreen extends ConsumerWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Destination'),
-                        Text(settings.downloadPath, style: TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                        Text(
+                          settings.downloadPath,
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                   ],

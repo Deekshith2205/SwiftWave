@@ -24,10 +24,7 @@ class _SendScreenState extends ConsumerState<SendScreen> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text(
-              'Select Files',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text('Select Files', style: theme.textTheme.titleMedium),
             const SizedBox(height: 16),
             SwiftWaveCard(
               onTap: () {
@@ -46,12 +43,9 @@ class _SendScreenState extends ConsumerState<SendScreen> {
                 ),
               ),
             ),
-            
+
             const SizedBox(height: 32),
-            Text(
-              'Selected (0)',
-              style: theme.textTheme.titleMedium,
-            ),
+            Text('Selected (0)', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             Text(
               'Total size: 0 MB\nEstimated transfer: 0 MB',
@@ -59,7 +53,7 @@ class _SendScreenState extends ConsumerState<SendScreen> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            
+
             const SizedBox(height: 32),
             SwitchListTile(
               title: const Text('Enable Compression'),
@@ -68,7 +62,7 @@ class _SendScreenState extends ConsumerState<SendScreen> {
               onChanged: (val) => setState(() => _compress = val),
               contentPadding: EdgeInsets.zero,
             ),
-            
+
             const SizedBox(height: 48),
             SwiftWavePrimaryButton(
               label: 'Send',

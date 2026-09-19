@@ -18,7 +18,7 @@ class SwiftWaveCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     final cardContent = Container(
       padding: padding,
       decoration: BoxDecoration(

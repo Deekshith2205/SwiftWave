@@ -21,13 +21,17 @@ class SwiftWaveLinearProgress extends StatelessWidget {
           ? LinearProgressIndicator(
               minHeight: 6,
               backgroundColor: theme.colorScheme.primary.withAlpha(20),
-              valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                theme.colorScheme.primary,
+              ),
             )
           : LinearProgressIndicator(
               value: progress,
               minHeight: 6,
               backgroundColor: theme.colorScheme.primary.withAlpha(20),
-              valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                theme.colorScheme.primary,
+              ),
             ),
     );
   }

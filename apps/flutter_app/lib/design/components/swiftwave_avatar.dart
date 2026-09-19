@@ -27,7 +27,9 @@ class SwiftWaveAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = isTrusted ? SwiftWaveColors.statusSuccess : theme.colorScheme.primary;
+    final color = isTrusted
+        ? SwiftWaveColors.statusSuccess
+        : theme.colorScheme.primary;
 
     return Container(
       width: size,

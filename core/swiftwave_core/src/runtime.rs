@@ -13,6 +13,7 @@ use tokio::runtime::Runtime;
 use crate::config::CoreConfig;
 use crate::device::identity::DeviceIdentity;
 use crate::device::storage::SecureStorage;
+use crate::discovery::Discovery;
 use crate::error::{Result, SwiftWaveError};
 
 /// Represents the current lifecycle state of the runtime.
@@ -90,6 +91,7 @@ pub struct SwiftWaveRuntime {
     pub tokio_rt: Runtime,
     pub config: RwLock<Option<CoreConfig>>,
     pub identity: RwLock<Option<DeviceIdentity>>,
+    pub discovery: RwLock<Option<Box<dyn crate::discovery::Discovery>>>,
     pub storage: Arc<dyn SecureStorage>,
 }
 
@@ -116,6 +118,7 @@ impl SwiftWaveRuntime {
             tokio_rt: rt,
             config: RwLock::new(None),
             identity: RwLock::new(None),
+            discovery: RwLock::new(None),
             storage,
         })
     }
@@ -179,6 +182,67 @@ impl SwiftWaveRuntime {
 
         // Note: The actual Tokio runtime is dropped when `SwiftWaveRuntime` is dropped by the FFI boundary,
         // which will gracefully cancel all pending tasks.
+        Ok(())
+    }
+
+    /// Starts mDNS discovery on the local network.
+    pub fn start_discovery(
+        &self,
+        quic_port: u16,
+        tx: tokio::sync::mpsc::Sender<crate::discovery::DiscoveryEvent>,
+    ) -> Result<()> {
+        let state = self
+            .state
+            .read()
+            .map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
+        if *state != LifecycleState::Initialized {
+            return Err(SwiftWaveError::Internal(
+                "Runtime is not initialized".to_string(),
+            ));
+        }
+
+        let mut discovery_guard = self
+            .discovery
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
+
+        if discovery_guard.is_some() {
+            return Ok(()); // Already started
+        }
+
+        let identity_guard = self
+            .identity
+            .read()
+            .map_err(|_| SwiftWaveError::Internal("Runtime identity lock poisoned".to_string()))?;
+        let identity = identity_guard
+            .as_ref()
+            .ok_or_else(|| SwiftWaveError::Internal("Identity not loaded".to_string()))?;
+
+        let mut mdns = crate::discovery::mdns::MdnsDiscovery::new(
+            identity.fingerprint(),
+            identity.display_name().to_string(),
+            quic_port,
+        );
+
+        // mdns.start is async, block on it to ensure it fully starts before returning to FFI
+        self.tokio_rt.block_on(mdns.start(tx))?;
+
+        *discovery_guard = Some(Box::new(mdns));
+
+        Ok(())
+    }
+
+    /// Stops mDNS discovery.
+    pub fn stop_discovery(&self) -> Result<()> {
+        let mut discovery_guard = self
+            .discovery
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
+
+        if let Some(mut mdns) = discovery_guard.take() {
+            self.tokio_rt.block_on(mdns.stop())?;
+        }
+
         Ok(())
     }
 }

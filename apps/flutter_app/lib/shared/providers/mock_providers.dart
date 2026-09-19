@@ -29,17 +29,18 @@ final mockDevicesProvider = Provider<List<Device>>((ref) {
 // ---------------------------------------------------------------------------
 
 class MockActiveTransfersNotifier extends StateNotifier<List<Transfer>> {
-  MockActiveTransfersNotifier() : super([
-    const Transfer(
-      id: 'tx-1',
-      fileName: 'IMG_2048.jpg',
-      fileSize: 58000000,
-      bytesTransferred: 0,
-      isSender: true,
-      remotePeerId: 'dev-1',
-      status: TransferStatus.active,
-    )
-  ]) {
+  MockActiveTransfersNotifier()
+    : super([
+        const Transfer(
+          id: 'tx-1',
+          fileName: 'IMG_2048.jpg',
+          fileSize: 58000000,
+          bytesTransferred: 0,
+          isSender: true,
+          remotePeerId: 'dev-1',
+          status: TransferStatus.active,
+        ),
+      ]) {
     _startSimulating();
   }
 
@@ -51,7 +52,8 @@ class MockActiveTransfersNotifier extends StateNotifier<List<Transfer>> {
       state = state.map((tx) {
         if (tx.status != TransferStatus.active) return tx;
 
-        final newBytes = tx.bytesTransferred + (18400000 ~/ 2); // Simulating ~18.4 MB/s
+        final newBytes =
+            tx.bytesTransferred + (18400000 ~/ 2); // Simulating ~18.4 MB/s
         if (newBytes >= tx.fileSize) {
           return Transfer(
             id: tx.id,
@@ -85,8 +87,8 @@ class MockActiveTransfersNotifier extends StateNotifier<List<Transfer>> {
 
 final activeTransfersProvider =
     StateNotifierProvider<MockActiveTransfersNotifier, List<Transfer>>((ref) {
-  return MockActiveTransfersNotifier();
-});
+      return MockActiveTransfersNotifier();
+    });
 
 // ---------------------------------------------------------------------------
 // Mock Transfer History
@@ -121,14 +123,16 @@ final transferHistoryProvider = Provider<List<Transfer>>((ref) {
 
 class MockSettingsNotifier extends StateNotifier<AppSettings> {
   MockSettingsNotifier()
-      : super(const AppSettings(
+    : super(
+        const AppSettings(
           deviceName: 'My SwiftWave Device',
           downloadPath: '/Downloads/SwiftWave',
           autoAcceptTrusted: true,
           enableCompression: false,
           themeMode: 'system',
           discoveryTimeoutSeconds: 120,
-        ));
+        ),
+      );
 
   void updateSettings(AppSettings newSettings) {
     state = newSettings;
@@ -137,5 +141,5 @@ class MockSettingsNotifier extends StateNotifier<AppSettings> {
 
 final settingsProvider =
     StateNotifierProvider<MockSettingsNotifier, AppSettings>((ref) {
-  return MockSettingsNotifier();
-});
+      return MockSettingsNotifier();
+    });
