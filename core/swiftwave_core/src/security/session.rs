@@ -1,7 +1,7 @@
-﻿//! Secure session abstraction over an established Noise TransportState.
+//! Secure session abstraction over an established Noise TransportState.
 
-use snow::TransportState;
 use crate::error::{Result, SwiftWaveError};
+use snow::TransportState;
 
 /// A mutually authenticated and encrypted session with a peer.
 ///

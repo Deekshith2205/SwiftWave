@@ -15,8 +15,8 @@ use std::ffi::CString;
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use swiftwave_core::runtime::{SwiftWaveRuntime, LifecycleState};
 use swiftwave_core::error::SwiftWaveError;
+use swiftwave_core::runtime::{LifecycleState, SwiftWaveRuntime};
 
 // ---------------------------------------------------------------------------
 // Status codes
@@ -73,9 +73,9 @@ pub struct SwiftWaveHandle {
 /// If a panic occurs, returns `SwiftWaveStatus::InternalError`.
 pub(crate) fn catch_panic_status<F>(f: F) -> SwiftWaveStatus
 where
-    F: FnOnce() -> SwiftWaveStatus + std::panic::UnwindSafe,
+    F: FnOnce() -> SwiftWaveStatus,
 {
-    match catch_unwind(f) {
+    match catch_unwind(AssertUnwindSafe(f)) {
         Ok(status) => status,
         Err(_) => SwiftWaveStatus::InternalError,
     }
@@ -85,9 +85,9 @@ where
 /// If a panic occurs, returns a null pointer.
 pub(crate) fn catch_panic_ptr<T, F>(f: F) -> *mut T
 where
-    F: FnOnce() -> *mut T + std::panic::UnwindSafe,
+    F: FnOnce() -> *mut T,
 {
-    match catch_unwind(f) {
+    match catch_unwind(AssertUnwindSafe(f)) {
         Ok(ptr) => ptr,
         Err(_) => std::ptr::null_mut(),
     }
@@ -99,7 +99,7 @@ where
 
 /// Create a new, uninitialized SwiftWave runtime.
 ///
-/// Returns an opaque pointer to the `SwiftWaveHandle`. 
+/// Returns an opaque pointer to the `SwiftWaveHandle`.
 /// The caller MUST eventually call `swiftwave_destroy` to free memory.
 /// Returns NULL on failure to create the runtime.
 #[no_mangle]
@@ -114,25 +114,26 @@ pub extern "C" fn swiftwave_create(data_directory: *const c_char) -> *mut SwiftW
         }
 
         let path_str = unsafe { std::ffi::CStr::from_ptr(data_directory) }.to_str();
-        
-        let storage: std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage> = match path_str {
-            Ok(path) if path.is_empty() => return std::ptr::null_mut(),
-            Ok(path) => {
-                #[cfg(windows)]
-                {
-                    match swiftwave_storage_windows::WindowsSecureStorage::new(path) {
-                        Ok(s) => std::sync::Arc::new(s),
-                        Err(_) => return std::ptr::null_mut(),
+
+        let storage: std::sync::Arc<dyn swiftwave_core::device::storage::SecureStorage> =
+            match path_str {
+                Ok(path) if path.is_empty() => return std::ptr::null_mut(),
+                Ok(path) => {
+                    #[cfg(windows)]
+                    {
+                        match swiftwave_storage_windows::WindowsSecureStorage::new(path) {
+                            Ok(s) => std::sync::Arc::new(s),
+                            Err(_) => return std::ptr::null_mut(),
+                        }
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        // Other platforms not implemented yet. Do NOT fallback to mock.
+                        return std::ptr::null_mut();
                     }
                 }
-                #[cfg(not(windows))]
-                {
-                    // Other platforms not implemented yet. Do NOT fallback to mock.
-                    return std::ptr::null_mut();
-                }
-            }
-            Err(_) => return std::ptr::null_mut(),
-        };
+                Err(_) => return std::ptr::null_mut(),
+            };
 
         match SwiftWaveRuntime::new_with_storage(storage) {
             Ok(runtime) => {
@@ -157,7 +158,7 @@ pub extern "C" fn swiftwave_init(handle: *mut SwiftWaveHandle) -> SwiftWaveStatu
         }
 
         let h = unsafe { &*handle };
-        
+
         let state = match h.runtime.state.read() {
             Ok(guard) => *guard,
             Err(_) => return SwiftWaveStatus::InternalError,
@@ -185,7 +186,7 @@ pub extern "C" fn swiftwave_shutdown(handle: *mut SwiftWaveHandle) -> SwiftWaveS
         }
 
         let h = unsafe { &*handle };
-        
+
         let state = match h.runtime.state.read() {
             Ok(guard) => *guard,
             Err(_) => return SwiftWaveStatus::InternalError,
@@ -194,7 +195,7 @@ pub extern "C" fn swiftwave_shutdown(handle: *mut SwiftWaveHandle) -> SwiftWaveS
         if state == LifecycleState::Shutdown {
             return SwiftWaveStatus::AlreadyShutdown;
         }
-        
+
         if state == LifecycleState::Created {
             return SwiftWaveStatus::NotInitialized;
         }
@@ -294,7 +295,5 @@ pub unsafe extern "C" fn swiftwave_free_string(ptr: *mut c_char) {
 /// The returned pointer is `'static` — do NOT free it.
 #[no_mangle]
 pub extern "C" fn swiftwave_version() -> *const c_char {
-    catch_panic_ptr(|| {
-        b"0.1.0\0".as_ptr() as *const c_char
-    })
+    b"0.1.0\0".as_ptr() as *const c_char
 }

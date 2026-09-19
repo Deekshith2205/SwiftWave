@@ -6,8 +6,8 @@
 //! The FFI layer holds a pointer to an instance of `SwiftWaveRuntime` and manages
 //! its lifecycle safely.
 
-use std::sync::{Arc, Mutex, RwLock};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::runtime::Runtime;
 
 use crate::config::CoreConfig;
@@ -38,7 +38,7 @@ static RUNTIME_INIT_LOCK: Mutex<()> = Mutex::new(());
 /// This does not persist keys across process restarts. It is solely to allow
 /// the runtime to pass initialization checks without requiring full OS-level
 /// keystore integration (Phase 2).
-/// 
+///
 /// DEVELOPMENT / TESTING ONLY.
 pub struct InMemoryMockStorage {
     cache: Mutex<HashMap<String, Vec<u8>>>,
@@ -54,18 +54,27 @@ impl InMemoryMockStorage {
 
 impl SecureStorage for InMemoryMockStorage {
     fn save_secret(&self, key: &str, secret: &[u8]) -> Result<()> {
-        let mut cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         cache.insert(key.to_string(), secret.to_vec());
         Ok(())
     }
 
     fn load_secret(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        let cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let cache = self
+            .cache
+            .lock()
+            .map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         Ok(cache.get(key).cloned())
     }
 
     fn delete_secret(&self, key: &str) -> Result<()> {
-        let mut cache = self.cache.lock().map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| SwiftWaveError::Internal("MockStorage cache lock poisoned".to_string()))?;
         cache.remove(key);
         Ok(())
     }
@@ -100,7 +109,9 @@ impl SwiftWaveRuntime {
             .thread_name("swiftwave-worker")
             .enable_all()
             .build()
-            .map_err(|e| SwiftWaveError::Internal(format!("Failed to build tokio runtime: {}", e)))?;
+            .map_err(|e| {
+                SwiftWaveError::Internal(format!("Failed to build tokio runtime: {}", e))
+            })?;
 
         Ok(Self {
             state: RwLock::new(LifecycleState::Created),
@@ -119,9 +130,14 @@ impl SwiftWaveRuntime {
         // It specifically protects identity generation during process startup across runtimes.
         let _init_guard = RUNTIME_INIT_LOCK.lock().unwrap();
 
-        let mut state = self.state.write().map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
         if *state != LifecycleState::Created {
-            return Err(SwiftWaveError::Internal("Runtime is already initialized or shutting down".to_string()));
+            return Err(SwiftWaveError::Internal(
+                "Runtime is already initialized or shutting down".to_string(),
+            ));
         }
 
         // Initialize default configuration
@@ -130,9 +146,15 @@ impl SwiftWaveRuntime {
 
         let identity = DeviceIdentity::load_or_generate(device_name, self.storage.clone())?;
 
-        *self.config.write().map_err(|_| SwiftWaveError::Internal("Runtime config lock poisoned".to_string()))? = Some(config);
-        *self.identity.write().map_err(|_| SwiftWaveError::Internal("Runtime identity lock poisoned".to_string()))? = Some(identity);
-        
+        *self
+            .config
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime config lock poisoned".to_string()))? =
+            Some(config);
+        *self.identity.write().map_err(|_| {
+            SwiftWaveError::Internal("Runtime identity lock poisoned".to_string())
+        })? = Some(identity);
+
         *state = LifecycleState::Initialized;
 
         Ok(())
@@ -140,13 +162,16 @@ impl SwiftWaveRuntime {
 
     /// Shutdown the runtime.
     pub fn shutdown(&self) -> Result<()> {
-        let mut state = self.state.write().map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
         if *state == LifecycleState::Shutdown {
             return Ok(());
         }
 
         *state = LifecycleState::Shutdown;
-        
+
         // Clear resources safely
         if let Ok(mut identity) = self.identity.write() {
             *identity = None;
@@ -161,25 +186,42 @@ impl SwiftWaveRuntime {
     }
 
     /// Starts mDNS discovery on the local network.
-    pub fn start_discovery(&self, quic_port: u16, tx: tokio::sync::mpsc::Sender<crate::discovery::DiscoveryEvent>) -> Result<()> {
-        let state = self.state.read().map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
+    pub fn start_discovery(
+        &self,
+        quic_port: u16,
+        tx: tokio::sync::mpsc::Sender<crate::discovery::DiscoveryEvent>,
+    ) -> Result<()> {
+        let state = self
+            .state
+            .read()
+            .map_err(|_| SwiftWaveError::Internal("Runtime state lock poisoned".to_string()))?;
         if *state != LifecycleState::Initialized {
-            return Err(SwiftWaveError::Internal("Runtime is not initialized".to_string()));
+            return Err(SwiftWaveError::Internal(
+                "Runtime is not initialized".to_string(),
+            ));
         }
 
-        let mut discovery_guard = self.discovery.write().map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
-        
+        let mut discovery_guard = self
+            .discovery
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
+
         if discovery_guard.is_some() {
             return Ok(()); // Already started
         }
 
-        let identity_guard = self.identity.read().map_err(|_| SwiftWaveError::Internal("Runtime identity lock poisoned".to_string()))?;
-        let identity = identity_guard.as_ref().ok_or_else(|| SwiftWaveError::Internal("Identity not loaded".to_string()))?;
+        let identity_guard = self
+            .identity
+            .read()
+            .map_err(|_| SwiftWaveError::Internal("Runtime identity lock poisoned".to_string()))?;
+        let identity = identity_guard
+            .as_ref()
+            .ok_or_else(|| SwiftWaveError::Internal("Identity not loaded".to_string()))?;
 
         let mut mdns = crate::discovery::mdns::MdnsDiscovery::new(
             identity.fingerprint(),
             identity.display_name().to_string(),
-            quic_port
+            quic_port,
         );
 
         // mdns.start is async, block on it to ensure it fully starts before returning to FFI
@@ -192,8 +234,11 @@ impl SwiftWaveRuntime {
 
     /// Stops mDNS discovery.
     pub fn stop_discovery(&self) -> Result<()> {
-        let mut discovery_guard = self.discovery.write().map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
-        
+        let mut discovery_guard = self
+            .discovery
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("Runtime discovery lock poisoned".to_string()))?;
+
         if let Some(mut mdns) = discovery_guard.take() {
             self.tokio_rt.block_on(mdns.stop())?;
         }
@@ -201,4 +246,3 @@ impl SwiftWaveRuntime {
         Ok(())
     }
 }
-

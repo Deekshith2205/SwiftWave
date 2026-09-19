@@ -1,4 +1,4 @@
-﻿//! Device identity: X25519 keypair, persistent storage, and fingerprinting.
+//! Device identity: X25519 keypair, persistent storage, and fingerprinting.
 //!
 //! # Security design
 //! - The private key is generated once with a CSPRNG (`OsRng`) and persisted
@@ -51,13 +51,16 @@ pub struct DeviceIdentity {
 
 impl DeviceIdentity {
     /// Generate a brand-new identity backed by a fresh CSPRNG keypair.
-    pub fn generate(display_name: impl Into<String>, storage: Arc<dyn SecureStorage>) -> Result<Self> {
+    pub fn generate(
+        display_name: impl Into<String>,
+        storage: Arc<dyn SecureStorage>,
+    ) -> Result<Self> {
         // OsRng is a cryptographically secure random number generator backed
         // by the operating system.
         use rand_core::OsRng;
         let secret = StaticSecret::random_from_rng(OsRng);
         let public = PublicKey::from(&secret);
-        
+
         let identity = Self {
             secret,
             public,
@@ -69,13 +72,17 @@ impl DeviceIdentity {
     }
 
     /// Load a persisted identity from storage, or generate a fresh one if it doesn't exist.
-    pub fn load_or_generate(display_name: impl Into<String>, storage: Arc<dyn SecureStorage>) -> Result<Self> {
+    pub fn load_or_generate(
+        display_name: impl Into<String>,
+        storage: Arc<dyn SecureStorage>,
+    ) -> Result<Self> {
         if let Some(secret_bytes) = storage.load_secret(IDENTITY_SECRET_KEY)? {
-            let key_array: [u8; 32] = secret_bytes.try_into()
+            let key_array: [u8; 32] = secret_bytes
+                .try_into()
                 .map_err(|_| SwiftWaveError::Identity("Corrupted secret key length".into()))?;
             let secret = StaticSecret::from(key_array);
             let public = PublicKey::from(&secret);
-            
+
             return Ok(Self {
                 secret,
                 public,
@@ -83,13 +90,14 @@ impl DeviceIdentity {
                 storage,
             });
         }
-        
+
         Self::generate(display_name, storage)
     }
 
     /// Persist the identity to the secure storage abstraction.
     pub fn save(&self) -> Result<()> {
-        self.storage.save_secret(IDENTITY_SECRET_KEY, self.secret.as_bytes())
+        self.storage
+            .save_secret(IDENTITY_SECRET_KEY, self.secret.as_bytes())
     }
 
     /// Return the raw 32-byte public key.

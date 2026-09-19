@@ -97,18 +97,24 @@ impl TransferState {
         matches!(
             (self, next),
             (TransferState::Idle, TransferState::Discovering)
-            | (TransferState::Discovering, TransferState::Connecting)
-            | (TransferState::Connecting, TransferState::Authenticating)
-            | (TransferState::Authenticating, TransferState::AwaitingVerification)
-            | (TransferState::AwaitingVerification, TransferState::Preparing)
-            | (TransferState::Preparing, TransferState::Transferring)
-            | (TransferState::Transferring, TransferState::Paused)
-            | (TransferState::Transferring, TransferState::Interrupted)
-            | (TransferState::Transferring, TransferState::Completed)
-            | (TransferState::Paused, TransferState::Transferring)
-            | (TransferState::Paused, TransferState::Resuming)
-            | (TransferState::Interrupted, TransferState::Resuming)
-            | (TransferState::Resuming, TransferState::Transferring)
+                | (TransferState::Discovering, TransferState::Connecting)
+                | (TransferState::Connecting, TransferState::Authenticating)
+                | (
+                    TransferState::Authenticating,
+                    TransferState::AwaitingVerification
+                )
+                | (
+                    TransferState::AwaitingVerification,
+                    TransferState::Preparing
+                )
+                | (TransferState::Preparing, TransferState::Transferring)
+                | (TransferState::Transferring, TransferState::Paused)
+                | (TransferState::Transferring, TransferState::Interrupted)
+                | (TransferState::Transferring, TransferState::Completed)
+                | (TransferState::Paused, TransferState::Transferring)
+                | (TransferState::Paused, TransferState::Resuming)
+                | (TransferState::Interrupted, TransferState::Resuming)
+                | (TransferState::Resuming, TransferState::Transferring)
         )
     }
 }

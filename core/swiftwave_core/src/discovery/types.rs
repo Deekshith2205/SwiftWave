@@ -55,4 +55,3 @@ pub enum DiscoveryEvent {
     /// A peer's advertisement expired or it disconnected.
     PeerLost(PublicKeyFingerprint),
 }
-

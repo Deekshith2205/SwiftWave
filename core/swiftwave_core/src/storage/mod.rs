@@ -3,5 +3,5 @@
 pub mod file_reader;
 pub mod metadata;
 
-pub use file_reader::{ChunkReader, ChunkWriter, compute_chunk_hashes};
-pub use metadata::{FileMetadata, sanitise_filename};
+pub use file_reader::{compute_chunk_hashes, ChunkReader, ChunkWriter};
+pub use metadata::{sanitise_filename, FileMetadata};
