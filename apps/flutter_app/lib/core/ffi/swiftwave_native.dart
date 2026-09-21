@@ -33,12 +33,21 @@ typedef _SwiftWaveGetDeviceIdDart =
 typedef _SwiftWaveFreeStringNative = Void Function(Pointer<Utf8>);
 typedef _SwiftWaveFreeStringDart = void Function(Pointer<Utf8>);
 
-typedef _SwiftWaveStartDiscoveryNative = Int32 Function(
-    Pointer<SwiftWaveHandle>, Uint16, Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>);
-typedef _SwiftWaveStartDiscoveryDart = int Function(
-    Pointer<SwiftWaveHandle>, int, Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>);
+typedef _SwiftWaveStartDiscoveryNative =
+    Int32 Function(
+      Pointer<SwiftWaveHandle>,
+      Uint16,
+      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>,
+    );
+typedef _SwiftWaveStartDiscoveryDart =
+    int Function(
+      Pointer<SwiftWaveHandle>,
+      int,
+      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>,
+    );
 
-typedef _SwiftWaveStopDiscoveryNative = Int32 Function(Pointer<SwiftWaveHandle>);
+typedef _SwiftWaveStopDiscoveryNative =
+    Int32 Function(Pointer<SwiftWaveHandle>);
 typedef _SwiftWaveStopDiscoveryDart = int Function(Pointer<SwiftWaveHandle>);
 
 typedef _SwiftWaveVersionNative = Pointer<Utf8> Function();
@@ -129,13 +138,15 @@ class SwiftWaveNative {
           'swiftwave_free_string',
         );
     _startDiscovery = lib
-        .lookupFunction<_SwiftWaveStartDiscoveryNative, _SwiftWaveStartDiscoveryDart>(
-          'swiftwave_start_discovery',
-        );
+        .lookupFunction<
+          _SwiftWaveStartDiscoveryNative,
+          _SwiftWaveStartDiscoveryDart
+        >('swiftwave_start_discovery');
     _stopDiscovery = lib
-        .lookupFunction<_SwiftWaveStopDiscoveryNative, _SwiftWaveStopDiscoveryDart>(
-          'swiftwave_stop_discovery',
-        );
+        .lookupFunction<
+          _SwiftWaveStopDiscoveryNative,
+          _SwiftWaveStopDiscoveryDart
+        >('swiftwave_stop_discovery');
     _version = lib
         .lookupFunction<_SwiftWaveVersionNative, _SwiftWaveVersionDart>(
           'swiftwave_version',
@@ -245,25 +256,34 @@ class SwiftWaveNative {
       },
     );
 
-    _discoveryCallable = NativeCallable<Void Function(CDiscoveryEvent)>.listener((CDiscoveryEvent event) {
-      if (event.eventType == 0) { // PeerFound
-        final peer = DiscoveredPeer(
-          fingerprint: _decodeCArray(event.fingerprint, 65),
-          displayName: _decodeCArray(event.displayName, 65),
-          address: _decodeCArray(event.address, 65),
-          medium: DiscoveryMedium.values[event.medium],
-          rssi: event.rssiHasValue == 1 ? event.rssi : null,
-          protocolVersion: event.protocolVersion,
-          lastSeen: event.lastSeen,
-        );
-        _discoveryStreamController?.add(DiscoveryEvent.peerFound(peer));
-      } else if (event.eventType == 1) { // PeerLost
-        final fp = _decodeCArray(event.fingerprint, 65);
-        _discoveryStreamController?.add(DiscoveryEvent.peerLost(fp));
-      }
-    });
+    _discoveryCallable =
+        NativeCallable<Void Function(CDiscoveryEvent)>.listener((
+          CDiscoveryEvent event,
+        ) {
+          if (event.eventType == 0) {
+            // PeerFound
+            final peer = DiscoveredPeer(
+              fingerprint: _decodeCArray(event.fingerprint, 65),
+              displayName: _decodeCArray(event.displayName, 65),
+              address: _decodeCArray(event.address, 65),
+              medium: DiscoveryMedium.values[event.medium],
+              rssi: event.rssiHasValue == 1 ? event.rssi : null,
+              protocolVersion: event.protocolVersion,
+              lastSeen: event.lastSeen,
+            );
+            _discoveryStreamController?.add(DiscoveryEvent.peerFound(peer));
+          } else if (event.eventType == 1) {
+            // PeerLost
+            final fp = _decodeCArray(event.fingerprint, 65);
+            _discoveryStreamController?.add(DiscoveryEvent.peerLost(fp));
+          }
+        });
 
-    final status = _startDiscovery(_handle, quicPort, _discoveryCallable!.nativeFunction);
+    final status = _startDiscovery(
+      _handle,
+      quicPort,
+      _discoveryCallable!.nativeFunction,
+    );
     if (status != 0) {
       _discoveryCallable?.close();
       _discoveryCallable = null;

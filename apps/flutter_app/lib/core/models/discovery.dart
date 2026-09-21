@@ -1,10 +1,4 @@
-enum DiscoveryMedium {
-  mdnsUdp,
-  wifiAware,
-  wifiDirect,
-  ble,
-  manual,
-}
+enum DiscoveryMedium { mdnsUdp, wifiAware, wifiDirect, ble, manual }
 
 class DiscoveredPeer {
   final String fingerprint;

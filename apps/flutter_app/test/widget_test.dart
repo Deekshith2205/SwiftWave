@@ -27,7 +27,8 @@ class FakeSwiftWaveNative implements SwiftWaveNative {
   String getVersion() => '0.0.0-fake';
 
   @override
-  Stream<DiscoveryEvent> startDiscovery({required int quicPort}) => const Stream.empty();
+  Stream<DiscoveryEvent> startDiscovery({required int quicPort}) =>
+      const Stream.empty();
 
   @override
   void stopDiscovery() {}
