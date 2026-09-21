@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:swiftwave_app/core/providers/runtime_provider.dart';
 import 'package:swiftwave_app/core/ffi/swiftwave_native.dart';
+import 'package:swiftwave_app/core/models/discovery.dart';
 import 'package:swiftwave_app/app/app.dart';
 import 'package:swiftwave_app/shared/widgets/scaffold_shell.dart';
 
@@ -24,6 +25,12 @@ class FakeSwiftWaveNative implements SwiftWaveNative {
 
   @override
   String getVersion() => '0.0.0-fake';
+
+  @override
+  Stream<DiscoveryEvent> startDiscovery({required int quicPort}) => const Stream.empty();
+
+  @override
+  void stopDiscovery() {}
 }
 
 void main() {

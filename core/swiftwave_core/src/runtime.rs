@@ -172,6 +172,9 @@ impl SwiftWaveRuntime {
 
         *state = LifecycleState::Shutdown;
 
+        // Explicitly stop discovery before clearing other resources
+        let _ = self.stop_discovery();
+
         // Clear resources safely
         if let Ok(mut identity) = self.identity.write() {
             *identity = None;

@@ -1,6 +1,9 @@
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:convert';
+import 'dart:async';
 import 'package:ffi/ffi.dart';
+import '../models/discovery.dart';
 import 'package:flutter/foundation.dart';
 
 // ---------------------------------------------------------------------------
@@ -29,6 +32,14 @@ typedef _SwiftWaveGetDeviceIdDart =
 
 typedef _SwiftWaveFreeStringNative = Void Function(Pointer<Utf8>);
 typedef _SwiftWaveFreeStringDart = void Function(Pointer<Utf8>);
+
+typedef _SwiftWaveStartDiscoveryNative = Int32 Function(
+    Pointer<SwiftWaveHandle>, Uint16, Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>);
+typedef _SwiftWaveStartDiscoveryDart = int Function(
+    Pointer<SwiftWaveHandle>, int, Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>);
+
+typedef _SwiftWaveStopDiscoveryNative = Int32 Function(Pointer<SwiftWaveHandle>);
+typedef _SwiftWaveStopDiscoveryDart = int Function(Pointer<SwiftWaveHandle>);
 
 typedef _SwiftWaveVersionNative = Pointer<Utf8> Function();
 typedef _SwiftWaveVersionDart = Pointer<Utf8> Function();
@@ -62,7 +73,12 @@ class SwiftWaveNative {
   static late final _SwiftWaveShutdownDart _shutdown;
   static late final _SwiftWaveGetDeviceIdDart _getDeviceId;
   static late final _SwiftWaveFreeStringDart _freeString;
+  static late final _SwiftWaveStartDiscoveryDart _startDiscovery;
+  static late final _SwiftWaveStopDiscoveryDart _stopDiscovery;
   static late final _SwiftWaveVersionDart _version;
+
+  NativeCallable<Void Function(CDiscoveryEvent)>? _discoveryCallable;
+  StreamController<DiscoveryEvent>? _discoveryStreamController;
 
   static bool _isLoaded = false;
   bool _isDestroyed = false;
@@ -111,6 +127,14 @@ class SwiftWaveNative {
     _freeString = lib
         .lookupFunction<_SwiftWaveFreeStringNative, _SwiftWaveFreeStringDart>(
           'swiftwave_free_string',
+        );
+    _startDiscovery = lib
+        .lookupFunction<_SwiftWaveStartDiscoveryNative, _SwiftWaveStartDiscoveryDart>(
+          'swiftwave_start_discovery',
+        );
+    _stopDiscovery = lib
+        .lookupFunction<_SwiftWaveStopDiscoveryNative, _SwiftWaveStopDiscoveryDart>(
+          'swiftwave_stop_discovery',
         );
     _version = lib
         .lookupFunction<_SwiftWaveVersionNative, _SwiftWaveVersionDart>(
@@ -179,6 +203,8 @@ class SwiftWaveNative {
       return;
     }
 
+    stopDiscovery();
+
     if (_handle != nullptr) {
       _destroy(_handle);
       _handle = nullptr;
@@ -186,26 +212,125 @@ class SwiftWaveNative {
     _isDestroyed = true;
   }
 
+  String _decodeCArray(Array<Int8> arr, int maxLen) {
+    final bytes = <int>[];
+    for (int i = 0; i < maxLen; i++) {
+      final b = arr[i];
+      if (b == 0) break;
+      bytes.add(b);
+    }
+    return utf8.decode(bytes);
+  }
+
   /// Get the current version of the native library.
   String getVersion() {
     if (!_isLoaded) return '0.0.0-stub';
-
     final ptr = _version();
-    if (ptr == nullptr) return 'unknown';
     return ptr.toDartString();
+  }
+
+  /// Start mDNS discovery on the local network.
+  /// Returns a stream of [DiscoveryEvent].
+  Stream<DiscoveryEvent> startDiscovery({required int quicPort}) {
+    if (_isDestroyed) throw StateError('Handle is destroyed');
+    if (!_isLoaded) return const Stream.empty();
+
+    if (_discoveryStreamController != null) {
+      return _discoveryStreamController!.stream;
+    }
+
+    _discoveryStreamController = StreamController<DiscoveryEvent>.broadcast(
+      onCancel: () {
+        stopDiscovery();
+      },
+    );
+
+    _discoveryCallable = NativeCallable<Void Function(CDiscoveryEvent)>.listener((CDiscoveryEvent event) {
+      if (event.eventType == 0) { // PeerFound
+        final peer = DiscoveredPeer(
+          fingerprint: _decodeCArray(event.fingerprint, 65),
+          displayName: _decodeCArray(event.displayName, 65),
+          address: _decodeCArray(event.address, 65),
+          medium: DiscoveryMedium.values[event.medium],
+          rssi: event.rssiHasValue == 1 ? event.rssi : null,
+          protocolVersion: event.protocolVersion,
+          lastSeen: event.lastSeen,
+        );
+        _discoveryStreamController?.add(DiscoveryEvent.peerFound(peer));
+      } else if (event.eventType == 1) { // PeerLost
+        final fp = _decodeCArray(event.fingerprint, 65);
+        _discoveryStreamController?.add(DiscoveryEvent.peerLost(fp));
+      }
+    });
+
+    final status = _startDiscovery(_handle, quicPort, _discoveryCallable!.nativeFunction);
+    if (status != 0) {
+      _discoveryCallable?.close();
+      _discoveryCallable = null;
+      throw Exception('startDiscovery failed with status $status');
+    }
+
+    return _discoveryStreamController!.stream;
+  }
+
+  /// Stop mDNS discovery.
+  void stopDiscovery() {
+    if (!_isLoaded || _isDestroyed) return;
+
+    if (_discoveryCallable != null) {
+      _stopDiscovery(_handle);
+      _discoveryCallable?.close();
+      _discoveryCallable = null;
+    }
+
+    if (_discoveryStreamController != null) {
+      _discoveryStreamController?.close();
+      _discoveryStreamController = null;
+    }
   }
 
   /// Get the device ID string.
   String? getDeviceId() {
     if (_isDestroyed) throw StateError('Handle has been destroyed');
-    if (!_isLoaded) return '00000000-0000-0000-0000-000000000000';
-    if (_handle == nullptr) return null;
-
+    if (!_isLoaded) return null;
     final ptr = _getDeviceId(_handle);
     if (ptr == nullptr) return null;
 
-    final str = ptr.toDartString();
+    final id = ptr.toDartString();
     _freeString(ptr);
-    return str;
+    return id;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Native FFI Structures
+// ---------------------------------------------------------------------------
+
+final class CDiscoveryEvent extends Struct {
+  @Uint8()
+  external int eventType;
+
+  @Array(65)
+  external Array<Int8> fingerprint;
+
+  @Array(65)
+  external Array<Int8> displayName;
+
+  @Array(65)
+  external Array<Int8> address;
+
+  @Uint8()
+  external int medium;
+
+  @Uint8()
+  external int rssiHasValue;
+
+  @Int8()
+  external int rssi;
+
+  @Uint16()
+  external int protocolVersion;
+
+  @Uint64()
+  external int lastSeen;
 }
