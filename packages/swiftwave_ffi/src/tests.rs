@@ -114,3 +114,40 @@ fn test_panic_containment() {
     });
     assert!(ptr.is_null());
 }
+
+#[cfg(windows)]
+#[test]
+fn test_discovery_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    assert!(!handle.is_null());
+
+    let status = swiftwave_init(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
+
+    // Start discovery
+    let status = swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    // Double start should fail
+    let status = swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    assert!(matches!(status, SwiftWaveStatus::InternalError));
+
+    // Stop discovery
+    let status = swiftwave_stop_discovery(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    // Double stop should succeed but do nothing, actually wait, our implementation returns Success if task_guard was None, wait:
+    // "if let Some(task_handle) = task_guard.take() { ... } SwiftWaveStatus::Success"
+    let status = swiftwave_stop_discovery(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    swiftwave_shutdown(handle);
+    swiftwave_destroy(handle);
+}

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:swiftwave_app/core/ffi/swiftwave_native.dart';
+import 'package:swiftwave_app/core/models/discovery.dart';
 
 void main() {
   group('SwiftWaveNative Dart Lifecycle', () {
@@ -50,6 +51,20 @@ void main() {
       expect(() => native.init(), throwsStateError);
       expect(() => native.shutdown(), throwsStateError);
       expect(() => native.getDeviceId(), throwsStateError);
+      expect(() => native.startDiscovery(quicPort: 0), throwsStateError);
+    });
+
+    test('startDiscovery degraded mode returns empty stream', () {
+      final native = SwiftWaveNative();
+      // Since FFI isn't loaded in test mode, it should gracefully return an empty stream
+      final stream = native.startDiscovery(quicPort: 12345);
+      expect(stream, isA<Stream<DiscoveryEvent>>());
+      expect(stream.isEmpty, completion(isTrue));
+    });
+
+    test('stopDiscovery in degraded mode is safe', () {
+      final native = SwiftWaveNative();
+      expect(() => native.stopDiscovery(), returnsNormally);
     });
   });
 }
