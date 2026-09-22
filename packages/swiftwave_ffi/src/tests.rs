@@ -151,3 +151,90 @@ fn test_discovery_lifecycle() {
     swiftwave_shutdown(handle);
     swiftwave_destroy(handle);
 }
+
+#[cfg(windows)]
+#[test]
+fn test_discovery_destroy_with_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
+    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+
+    // 1. destroy with discovery task present
+    // 5. callback consumer JoinHandle is fully awaited before destruction
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_discovery_destroy_without_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    // 2. destroy without discovery task
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_discovery_shutdown_followed_by_destroy() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
+    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+
+    // 3. shutdown followed by destroy
+    // 4. repeated cleanup safety
+    let status = swiftwave_shutdown(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    // duplicate shutdown
+    let status2 = swiftwave_shutdown(handle);
+    assert!(matches!(status2, SwiftWaveStatus::AlreadyShutdown));
+
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_discovery_destroy_poisoned_mutex_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
+    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+
+    // Deliberately poison the mutex by panicking while holding the lock
+    let h = unsafe { &*handle };
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = h.discovery_task.lock().unwrap();
+        panic!("deliberate poison");
+    }));
+
+    assert!(h.discovery_task.is_poisoned());
+
+    // Destroy must recover the poisoned mutex, await the task, and not leak
+    swiftwave_destroy(handle);
+}

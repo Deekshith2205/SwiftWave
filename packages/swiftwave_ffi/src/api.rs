@@ -62,8 +62,8 @@ impl From<SwiftWaveError> for SwiftWaveStatus {
 
 /// Opaque handle mapping to a Boxed `SwiftWaveRuntime`.
 pub struct SwiftWaveHandle {
-    runtime: Box<SwiftWaveRuntime>,
-    discovery_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    pub(crate) runtime: Box<SwiftWaveRuntime>,
+    pub(crate) discovery_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -208,10 +208,11 @@ pub extern "C" fn swiftwave_shutdown(handle: *mut SwiftWaveHandle) -> SwiftWaveS
             return SwiftWaveStatus::NotInitialized;
         }
 
-        // Must explicitly stop discovery FFI task if it's running
+        // Must explicitly stop discovery FFI task if it's running.
+        // If the mutex is poisoned, we recover the guard to ensure cleanup still runs.
         let mut task_guard = match h.discovery_task.lock() {
-            Ok(g) => g,
-            Err(_) => return SwiftWaveStatus::InternalError,
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner(),
         };
         if let Some(task_handle) = task_guard.take() {
             let _ = h.runtime.stop_discovery();
@@ -236,9 +237,24 @@ pub extern "C" fn swiftwave_destroy(handle: *mut SwiftWaveHandle) {
             return SwiftWaveStatus::Success;
         }
 
+        let h = unsafe { &*handle };
+
+        // Explicitly stop and await the discovery task if it exists
+        // to prevent detached task execution after handle destruction.
+        // If the mutex is poisoned, we recover the guard to ensure cleanup still runs.
+        let mut task_guard = match h.discovery_task.lock() {
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner(),
+        };
+
+        if let Some(task_handle) = task_guard.take() {
+            let _ = h.runtime.stop_discovery();
+            let _ = h.runtime.tokio_rt.block_on(task_handle);
+        }
+
         // Recover the Box and let it drop to free memory.
-        let h = unsafe { Box::from_raw(handle) };
-        let _ = h.runtime.shutdown();
+        let h_box = unsafe { Box::from_raw(handle) };
+        let _ = h_box.runtime.shutdown();
         SwiftWaveStatus::Success
     }));
 }
