@@ -369,7 +369,6 @@ use swiftwave_core::discovery::DiscoveryEvent;
 #[no_mangle]
 pub extern "C" fn swiftwave_start_discovery(
     handle: *mut SwiftWaveHandle,
-    quic_port: u16,
     callback: Option<extern "C" fn(CDiscoveryEvent)>,
 ) -> SwiftWaveStatus {
     catch_panic_status(|| {
@@ -392,7 +391,7 @@ pub extern "C" fn swiftwave_start_discovery(
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(100);
 
-        match h.runtime.start_discovery(quic_port, tx) {
+        match h.runtime.start_discovery(tx) {
             Ok(_) => {
                 let task_handle = h.runtime.tokio_rt.spawn(async move {
                     while let Some(event) = rx.recv().await {

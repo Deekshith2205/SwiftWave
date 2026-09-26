@@ -93,6 +93,8 @@ pub struct SwiftWaveRuntime {
     pub identity: RwLock<Option<DeviceIdentity>>,
     pub discovery: RwLock<Option<Box<dyn crate::discovery::Discovery>>>,
     pub storage: Arc<dyn SecureStorage>,
+    pub quic_server: RwLock<Option<quinn::Endpoint>>,
+    pub actual_quic_port: RwLock<Option<u16>>,
 }
 
 impl SwiftWaveRuntime {
@@ -120,6 +122,8 @@ impl SwiftWaveRuntime {
             identity: RwLock::new(None),
             discovery: RwLock::new(None),
             storage,
+            quic_server: RwLock::new(None),
+            actual_quic_port: RwLock::new(None),
         })
     }
 
@@ -140,11 +144,41 @@ impl SwiftWaveRuntime {
             ));
         }
 
+        // We explicitly install the global rustls crypto provider here.
+        // Quinn requires a crypto provider to build TLS configurations.
+        // By installing it once during runtime initialization, we avoid
+        // needing to inject the provider into every QUIC endpoint builder.
+        // We ignore the result because another test/runtime might have already installed it.
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+
         // Initialize default configuration
         let config = CoreConfig::default();
         let device_name = "SwiftWave Device"; // TODO (Phase 2): pull from config or OS
 
         let identity = DeviceIdentity::load_or_generate(device_name, self.storage.clone())?;
+
+        // Start QUIC Server Endpoint
+        let bind_addr = "0.0.0.0:0".parse().unwrap();
+        let endpoint = self
+            .tokio_rt
+            .block_on(crate::transport::quic::build_server_endpoint(bind_addr))?;
+        let port = endpoint
+            .local_addr()
+            .map_err(|e| SwiftWaveError::Internal(format!("Failed to get QUIC local addr: {e}")))?
+            .port();
+
+        *self
+            .quic_server
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("quic_server lock poisoned".into()))? =
+            Some(endpoint);
+        *self
+            .actual_quic_port
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("actual_quic_port lock poisoned".into()))? =
+            Some(port);
 
         *self
             .config
@@ -175,6 +209,17 @@ impl SwiftWaveRuntime {
         // Explicitly stop discovery before clearing other resources
         let _ = self.stop_discovery();
 
+        // Close the QUIC Server Endpoint so it stops listening
+        if let Ok(mut server) = self.quic_server.write() {
+            if let Some(endpoint) = server.take() {
+                endpoint.close(0_u32.into(), b"runtime shutdown");
+                self.tokio_rt.block_on(endpoint.wait_idle());
+            }
+        }
+        if let Ok(mut port) = self.actual_quic_port.write() {
+            *port = None;
+        }
+
         // Clear resources safely
         if let Ok(mut identity) = self.identity.write() {
             *identity = None;
@@ -188,10 +233,9 @@ impl SwiftWaveRuntime {
         Ok(())
     }
 
-    /// Starts mDNS discovery on the local network.
+    /// Starts mDNS discovery on the local network using the actual QUIC port.
     pub fn start_discovery(
         &self,
-        quic_port: u16,
         tx: tokio::sync::mpsc::Sender<crate::discovery::DiscoveryEvent>,
     ) -> Result<()> {
         let state = self
@@ -220,6 +264,12 @@ impl SwiftWaveRuntime {
         let identity = identity_guard
             .as_ref()
             .ok_or_else(|| SwiftWaveError::Internal("Identity not loaded".to_string()))?;
+
+        let quic_port = self
+            .actual_quic_port
+            .read()
+            .map_err(|_| SwiftWaveError::Internal("actual_quic_port lock poisoned".into()))?
+            .ok_or_else(|| SwiftWaveError::Internal("QUIC port not available".into()))?;
 
         let mut mdns = crate::discovery::mdns::MdnsDiscovery::new(
             identity.fingerprint(),
