@@ -10,9 +10,67 @@ use snow::{Builder, HandshakeState as SnowHandshakeState};
 use crate::device::identity::{PeerIdentity, PublicKeyFingerprint};
 use crate::error::{Result, SwiftWaveError};
 use crate::security::session::SecureSession;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::time::timeout;
 
 const NOISE_PARAMS: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
-const MAX_MESSAGE: usize = 65535;
+const MAX_MESSAGE: usize = 4096;
+const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+pub(crate) async fn read_framed_message<R>(reader: &mut R) -> Result<Vec<u8>>
+where
+    R: AsyncRead + Unpin,
+{
+    timeout(HANDSHAKE_TIMEOUT, async {
+        let mut len_buf = [0u8; 2];
+        reader.read_exact(&mut len_buf).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                SwiftWaveError::UnexpectedEof
+            } else {
+                SwiftWaveError::Io(e)
+            }
+        })?;
+
+        let len = u16::from_be_bytes(len_buf) as usize;
+        if len > MAX_MESSAGE {
+            return Err(SwiftWaveError::FrameTooLarge);
+        }
+
+        let mut payload = vec![0u8; len];
+        if len > 0 {
+            reader.read_exact(&mut payload).await.map_err(|e| {
+                if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                    SwiftWaveError::UnexpectedEof
+                } else {
+                    SwiftWaveError::Io(e)
+                }
+            })?;
+        }
+        Ok(payload)
+    })
+    .await
+    .unwrap_or(Err(SwiftWaveError::HandshakeTimeout))
+}
+
+pub(crate) async fn write_framed_message<W>(writer: &mut W, message: &[u8]) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    if message.len() > MAX_MESSAGE {
+        return Err(SwiftWaveError::FrameTooLarge);
+    }
+    let len_buf = (message.len() as u16).to_be_bytes();
+
+    let mut frame = Vec::with_capacity(2 + message.len());
+    frame.extend_from_slice(&len_buf);
+    frame.extend_from_slice(message);
+
+    match timeout(HANDSHAKE_TIMEOUT, writer.write_all(&frame)).await {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(SwiftWaveError::Io(e)),
+        Err(_) => Err(SwiftWaveError::HandshakeTimeout),
+    }
+}
 
 /// Represents an active, incomplete Noise handshake.
 pub struct HandshakeState {
@@ -60,6 +118,25 @@ impl HandshakeState {
         self.state
             .write_message(payload, out)
             .map_err(|_| SwiftWaveError::HandshakeFailed)
+    }
+
+    /// Read an incoming framed handshake message from the async reader.
+    pub async fn read_framed<R>(&mut self, reader: &mut R, out: &mut [u8]) -> Result<usize>
+    where
+        R: AsyncRead + Unpin,
+    {
+        let payload = read_framed_message(reader).await?;
+        self.read_message(&payload, out)
+    }
+
+    /// Write the next outgoing framed handshake message to the async writer.
+    pub async fn write_framed<W>(&mut self, writer: &mut W, out: &mut [u8]) -> Result<usize>
+    where
+        W: AsyncWrite + Unpin,
+    {
+        let len = self.write_message(&[], out)?;
+        write_framed_message(writer, &out[..len]).await?;
+        Ok(len)
     }
 
     /// Returns `true` if the handshake is complete.
@@ -247,5 +324,209 @@ mod tests {
         assert!(resp
             .read_message(&vec![0x00; MAX_MESSAGE + 1], &mut out)
             .is_err());
+    }
+    #[tokio::test]
+    async fn test_async_handshake() {
+        let (init_sec, init_pub) = generate_keypair();
+        let (resp_sec, resp_pub) = generate_keypair();
+
+        let mut init = HandshakeState::new_initiator(&init_sec).unwrap();
+        let mut resp = HandshakeState::new_responder(&resp_sec).unwrap();
+
+        let (mut client, mut server) = tokio::io::duplex(65536);
+
+        let init_task = tokio::spawn(async move {
+            let mut out = vec![0u8; MAX_MESSAGE];
+            while !init.is_finished() {
+                if init.is_my_turn() {
+                    init.write_framed(&mut client, &mut out).await.unwrap();
+                } else {
+                    init.read_framed(&mut client, &mut out).await.unwrap();
+                }
+            }
+            init.into_secure_session().unwrap()
+        });
+
+        let resp_task = tokio::spawn(async move {
+            let mut out = vec![0u8; MAX_MESSAGE];
+            while !resp.is_finished() {
+                if resp.is_my_turn() {
+                    resp.write_framed(&mut server, &mut out).await.unwrap();
+                } else {
+                    resp.read_framed(&mut server, &mut out).await.unwrap();
+                }
+            }
+            resp.into_secure_session().unwrap()
+        });
+
+        let ((_, init_peer, _), (_, resp_peer, _)) =
+            tokio::try_join!(init_task, resp_task).unwrap();
+
+        assert_eq!(init_peer.public_key, resp_pub);
+        assert_eq!(resp_peer.public_key, init_pub);
+    }
+
+    #[tokio::test]
+    async fn test_framing_normal_cases() {
+        let (mut client, mut server) = tokio::io::duplex(65536);
+
+        // 1. Empty payload
+        write_framed_message(&mut client, &[]).await.unwrap();
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res.len(), 0);
+
+        // 2. One-byte payload
+        write_framed_message(&mut client, &[42]).await.unwrap();
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res, vec![42]);
+
+        // 3. Typical Noise-sized payload (approx 96 bytes)
+        let typical = vec![0xab; 96];
+        write_framed_message(&mut client, &typical).await.unwrap();
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res, typical);
+
+        // 4. Payload exactly at maximum
+        let max_payload = vec![0xcd; MAX_MESSAGE];
+        write_framed_message(&mut client, &max_payload)
+            .await
+            .unwrap();
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res, max_payload);
+
+        // 5. Multiple consecutive frames
+        write_framed_message(&mut client, &[1, 2]).await.unwrap();
+        write_framed_message(&mut client, &[3, 4, 5]).await.unwrap();
+        let r1 = read_framed_message(&mut server).await.unwrap();
+        let r2 = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(r1, vec![1, 2]);
+        assert_eq!(r2, vec![3, 4, 5]);
+    }
+
+    #[tokio::test]
+    async fn test_framing_boundaries() {
+        // 6. One byte over maximum -> reject
+        let (mut client, _) = tokio::io::duplex(65536);
+        let oversized = vec![0xef; MAX_MESSAGE + 1];
+        let err = write_framed_message(&mut client, &oversized)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SwiftWaveError::FrameTooLarge));
+
+        // 7. Header split across multiple reads
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            client.write_all(&[0x00]).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            client.write_all(&[0x02, 0xaa, 0xbb]).await.unwrap();
+        });
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res, vec![0xaa, 0xbb]);
+
+        // 8. Payload split across many reads
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            client.write_all(&[0x00, 0x03, 0x11]).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            client.write_all(&[0x22]).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            client.write_all(&[0x33]).await.unwrap();
+        });
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res, vec![0x11, 0x22, 0x33]);
+
+        // 9. EOF during first header byte
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        drop(client);
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::UnexpectedEof));
+
+        // 10. EOF after first header byte
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            client.write_all(&[0x00]).await.unwrap();
+        });
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::UnexpectedEof));
+
+        // 11. EOF in the middle of payload
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            client.write_all(&[0x00, 0x04, 0xaa, 0xbb]).await.unwrap();
+        });
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::UnexpectedEof));
+
+        // 12. Declared length larger than remaining stream
+        // (same as 11, handled correctly by read_exact throwing UnexpectedEof)
+
+        // 13. Zero-length frame handling
+        // (tested in test_framing_normal_cases)
+    }
+
+    #[tokio::test]
+    async fn test_framing_malicious_input() {
+        // 14. Declared oversized length
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            // Declare length MAX_MESSAGE + 1
+            let len = (MAX_MESSAGE + 1) as u16;
+            client.write_all(&len.to_be_bytes()).await.unwrap();
+        });
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::FrameTooLarge));
+
+        // 15. Repeated large frames must not cause unbounded allocation
+        // Handled because read_framed_message returns error on length > MAX_MESSAGE
+
+        // 16. Timeout while waiting for header
+        tokio::time::pause();
+        let (_client, mut server) = tokio::io::duplex(65536);
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::HandshakeTimeout));
+        tokio::time::resume();
+
+        // 17. Timeout while waiting for payload
+        tokio::time::pause();
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            client.write_all(&[0x00, 0x05, 0xaa]).await.unwrap();
+            tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+        });
+        let err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(err, SwiftWaveError::HandshakeTimeout));
+        tokio::time::resume();
+    }
+
+    #[tokio::test]
+    async fn test_framing_write_partial() {
+        // 18. Partial writer must still receive complete frame
+        let (mut client, mut server) = tokio::io::duplex(10); // Small buffer to force partial writes internally
+        tokio::spawn(async move {
+            let msg = vec![0xcc; 50];
+            write_framed_message(&mut client, &msg).await.unwrap();
+        });
+        let res = read_framed_message(&mut server).await.unwrap();
+        assert_eq!(res.len(), 50);
+
+        // 19. Oversized write must fail before writing a partial frame
+        let (mut client, mut server) = tokio::io::duplex(65536);
+        let oversized = vec![0xef; MAX_MESSAGE + 1];
+        let err = write_framed_message(&mut client, &oversized)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, SwiftWaveError::FrameTooLarge));
+
+        // Ensure nothing was written
+        tokio::time::pause();
+        let read_err = read_framed_message(&mut server).await.unwrap_err();
+        assert!(matches!(read_err, SwiftWaveError::HandshakeTimeout));
+        tokio::time::resume();
     }
 }
