@@ -24,6 +24,18 @@ pub enum SwiftWaveError {
     // -----------------------------------------------------------------------
     // Cryptography
     // -----------------------------------------------------------------------
+    /// A framed handshake message exceeds the maximum allowed size.
+    #[error("Frame exceeds maximum allowed size")]
+    FrameTooLarge,
+
+    /// Unexpected EOF while reading a framed handshake message.
+    #[error("Unexpected EOF during frame read")]
+    UnexpectedEof,
+
+    /// Handshake I/O operation timed out.
+    #[error("Handshake I/O timeout")]
+    HandshakeTimeout,
+
     /// The Noise Protocol handshake failed.
     ///
     /// # Security note
