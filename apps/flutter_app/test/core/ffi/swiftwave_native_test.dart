@@ -51,13 +51,13 @@ void main() {
       expect(() => native.init(), throwsStateError);
       expect(() => native.shutdown(), throwsStateError);
       expect(() => native.getDeviceId(), throwsStateError);
-      expect(() => native.startDiscovery(quicPort: 0), throwsStateError);
+      expect(() => native.startDiscovery(), throwsStateError);
     });
 
     test('startDiscovery degraded mode returns empty stream', () {
       final native = SwiftWaveNative();
       // Since FFI isn't loaded in test mode, it should gracefully return an empty stream
-      final stream = native.startDiscovery(quicPort: 12345);
+      final stream = native.startDiscovery();
       expect(stream, isA<Stream<DiscoveryEvent>>());
       expect(stream.isEmpty, completion(isTrue));
     });

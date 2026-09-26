@@ -35,15 +35,13 @@ typedef _SwiftWaveFreeStringDart = void Function(Pointer<Utf8>);
 
 typedef _SwiftWaveStartDiscoveryNative =
     Int32 Function(
-      Pointer<SwiftWaveHandle>,
-      Uint16,
-      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>,
+      Pointer<SwiftWaveHandle> handle,
+      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>> callback,
     );
 typedef _SwiftWaveStartDiscoveryDart =
     int Function(
-      Pointer<SwiftWaveHandle>,
-      int,
-      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>>,
+      Pointer<SwiftWaveHandle> handle,
+      Pointer<NativeFunction<Void Function(CDiscoveryEvent)>> callback,
     );
 
 typedef _SwiftWaveStopDiscoveryNative =
@@ -242,7 +240,7 @@ class SwiftWaveNative {
 
   /// Start mDNS discovery on the local network.
   /// Returns a stream of [DiscoveryEvent].
-  Stream<DiscoveryEvent> startDiscovery({required int quicPort}) {
+  Stream<DiscoveryEvent> startDiscovery() {
     if (_isDestroyed) throw StateError('Handle is destroyed');
     if (!_isLoaded) return const Stream.empty();
 
@@ -279,11 +277,7 @@ class SwiftWaveNative {
           }
         });
 
-    final status = _startDiscovery(
-      _handle,
-      quicPort,
-      _discoveryCallable!.nativeFunction,
-    );
+    final status = _startDiscovery(_handle, _discoveryCallable!.nativeFunction);
     if (status != 0) {
       _discoveryCallable?.close();
       _discoveryCallable = null;

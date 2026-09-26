@@ -132,11 +132,11 @@ fn test_discovery_lifecycle() {
     extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
 
     // Start discovery
-    let status = swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    let status = swiftwave_start_discovery(handle, Some(dummy_callback));
     assert!(matches!(status, SwiftWaveStatus::Success));
 
     // Double start should fail
-    let status = swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    let status = swiftwave_start_discovery(handle, Some(dummy_callback));
     assert!(matches!(status, SwiftWaveStatus::InternalError));
 
     // Stop discovery
@@ -164,7 +164,7 @@ fn test_discovery_destroy_with_task() {
     swiftwave_init(handle);
 
     extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
-    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    swiftwave_start_discovery(handle, Some(dummy_callback));
 
     // 1. destroy with discovery task present
     // 5. callback consumer JoinHandle is fully awaited before destruction
@@ -198,7 +198,7 @@ fn test_discovery_shutdown_followed_by_destroy() {
     swiftwave_init(handle);
 
     extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
-    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    swiftwave_start_discovery(handle, Some(dummy_callback));
 
     // 3. shutdown followed by destroy
     // 4. repeated cleanup safety
@@ -224,7 +224,7 @@ fn test_discovery_destroy_poisoned_mutex_recovery() {
     swiftwave_init(handle);
 
     extern "C" fn dummy_callback(_event: CDiscoveryEvent) {}
-    swiftwave_start_discovery(handle, 0, Some(dummy_callback));
+    swiftwave_start_discovery(handle, Some(dummy_callback));
 
     // Deliberately poison the mutex by panicking while holding the lock
     let h = unsafe { &*handle };

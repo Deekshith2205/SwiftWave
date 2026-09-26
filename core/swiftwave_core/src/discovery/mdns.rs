@@ -305,7 +305,7 @@ impl Discovery for MdnsDiscovery {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<()> {
+    async fn stop(&mut self) -> crate::error::Result<()> {
         if let Some(task) = self.task_handle.take() {
             task.abort();
         }
