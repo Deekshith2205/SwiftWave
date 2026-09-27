@@ -321,7 +321,9 @@ impl SwiftWaveRuntime {
                 .clone()
         };
 
-        let peer = crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity).await?;
+        let peer =
+            crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity)
+                .await?;
 
         Ok((peer, conn))
     }
