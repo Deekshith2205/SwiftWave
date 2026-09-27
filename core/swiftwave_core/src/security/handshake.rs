@@ -7,7 +7,7 @@
 
 use snow::{Builder, HandshakeState as SnowHandshakeState};
 
-use crate::device::identity::{PeerIdentity, PublicKeyFingerprint};
+use crate::device::identity::PeerIdentity;
 use crate::error::{Result, SwiftWaveError};
 use crate::security::session::SecureSession;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -75,7 +75,6 @@ where
 /// Represents an active, incomplete Noise handshake.
 pub struct HandshakeState {
     state: SnowHandshakeState,
-    is_initiator: bool,
 }
 
 impl HandshakeState {
@@ -85,10 +84,7 @@ impl HandshakeState {
             .local_private_key(local_static_key)
             .build_initiator()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-        Ok(Self {
-            state: builder,
-            is_initiator: true,
-        })
+        Ok(Self { state: builder })
     }
 
     /// Initialize a new handshake state as the responder.
@@ -97,10 +93,7 @@ impl HandshakeState {
             .local_private_key(local_static_key)
             .build_responder()
             .map_err(|_| SwiftWaveError::HandshakeFailed)?;
-        Ok(Self {
-            state: builder,
-            is_initiator: false,
-        })
+        Ok(Self { state: builder })
     }
 
     /// Read an incoming handshake message from the peer.
