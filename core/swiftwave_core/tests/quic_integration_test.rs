@@ -30,7 +30,7 @@ fn test_quic_handshake_success() {
     });
 
     // Run A in the main thread
-    let a_peer_identity = rt_a
+    let (a_peer_identity, _conn) = rt_a
         .tokio_rt
         .block_on(async { rt_a.connect(addr_b).await.expect("A failed to connect") });
 
@@ -103,7 +103,7 @@ fn test_multiple_sequential_connections() {
             .block_on(async move { timeout(Duration::from_secs(5), b_incoming.recv()).await })
     });
 
-    let a_peer_id = rt_a
+    let (a_peer_id, _conn1) = rt_a
         .tokio_rt
         .block_on(async { rt_a.connect(addr_b).await.unwrap() });
     assert_eq!(a_peer_id.fingerprint, b_identity.fingerprint());
@@ -118,7 +118,7 @@ fn test_multiple_sequential_connections() {
             .block_on(async move { timeout(Duration::from_secs(5), b_incoming_2.recv()).await })
     });
 
-    let a_peer_id_2 = rt_a
+    let (a_peer_id_2, _conn2) = rt_a
         .tokio_rt
         .block_on(async { rt_a.connect(addr_b).await.unwrap() });
     assert_eq!(a_peer_id_2.fingerprint, b_identity.fingerprint());

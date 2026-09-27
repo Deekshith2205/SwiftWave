@@ -282,11 +282,10 @@ impl SwiftWaveRuntime {
         Ok(())
     }
 
-    /// Establish an outbound QUIC connection and perform the Noise XX handshake.
     pub async fn connect(
         &self,
         addr: std::net::SocketAddr,
-    ) -> Result<crate::device::identity::PeerIdentity> {
+    ) -> Result<(crate::device::identity::PeerIdentity, quinn::Connection)> {
         let endpoint = {
             let quic_server = self
                 .quic_server
@@ -322,7 +321,9 @@ impl SwiftWaveRuntime {
                 .clone()
         };
 
-        crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity).await
+        let peer = crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity).await?;
+
+        Ok((peer, conn))
     }
 
     /// Starts mDNS discovery on the local network using the actual QUIC port.
