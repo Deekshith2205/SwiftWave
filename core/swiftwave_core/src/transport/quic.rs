@@ -40,9 +40,23 @@ pub fn generate_self_signed_cert() -> Result<(CertificateDer<'static>, PrivateKe
     Ok((cert_der, key_der))
 }
 
+/// Build a QUIC client config.
+pub fn build_client_config() -> Result<ClientConfig> {
+    let crypto = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoopServerVerifier))
+        .with_no_client_auth();
+
+    Ok(ClientConfig::new(Arc::new(
+        quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
+            .map_err(|e| SwiftWaveError::Internal(format!("QUIC client config: {e}")))?,
+    )))
+}
+
 /// Build a QUIC server `Endpoint` bound to `bind_addr`.
 ///
-/// The endpoint accepts incoming QUIC connections from any peer.
+/// The endpoint accepts incoming QUIC connections from any peer,
+/// and is also configured to make outgoing connections.
 pub async fn build_server_endpoint(bind_addr: SocketAddr) -> Result<Endpoint> {
     let (cert_der, key_der) = generate_self_signed_cert()?;
 
@@ -56,31 +70,52 @@ pub async fn build_server_endpoint(bind_addr: SocketAddr) -> Result<Endpoint> {
             .map_err(|e| SwiftWaveError::Internal(format!("QUIC server config: {e}")))?,
     ));
 
-    Endpoint::server(server_config, bind_addr)
-        .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))
+    let mut endpoint = Endpoint::server(server_config, bind_addr)
+        .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
+
+    endpoint.set_default_client_config(build_client_config()?);
+    Ok(endpoint)
 }
 
 /// Build a QUIC client `Endpoint` bound to `0.0.0.0:0`.
 ///
 /// Certificate verification is disabled at the QUIC layer — see module docs.
 pub async fn build_client_endpoint() -> Result<Endpoint> {
-    // SAFETY: We intentionally skip TLS verification here because peer
-    // authentication is handled by the Noise XX handshake layer.
-    // This is documented and auditable.
-    let crypto = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(Arc::new(NoopServerVerifier))
-        .with_no_client_auth();
-
-    let client_config = ClientConfig::new(Arc::new(
-        quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
-            .map_err(|e| SwiftWaveError::Internal(format!("QUIC client config: {e}")))?,
-    ));
-
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
         .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
-    endpoint.set_default_client_config(client_config);
+    endpoint.set_default_client_config(build_client_config()?);
     Ok(endpoint)
+}
+
+/// Perform a Noise XX handshake over a bidirectional QUIC stream.
+pub async fn perform_noise_handshake(
+    send: &mut quinn::SendStream,
+    recv: &mut quinn::RecvStream,
+    is_initiator: bool,
+    local_identity: &crate::device::identity::DeviceIdentity,
+) -> Result<crate::device::identity::PeerIdentity> {
+    let mut state = if is_initiator {
+        crate::security::handshake::HandshakeState::new_initiator(
+            local_identity.secret_key_bytes(),
+        )?
+    } else {
+        crate::security::handshake::HandshakeState::new_responder(
+            local_identity.secret_key_bytes(),
+        )?
+    };
+
+    let mut out = vec![0u8; 4096];
+
+    while !state.is_finished() {
+        if state.is_my_turn() {
+            state.write_framed(send, &mut out).await?;
+        } else {
+            state.read_framed(recv, &mut out).await?;
+        }
+    }
+
+    let (_session, peer_identity, _) = state.into_secure_session()?;
+    Ok(peer_identity)
 }
 
 /// A TLS certificate verifier that accepts any certificate.

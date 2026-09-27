@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::runtime::Runtime;
+use tokio::sync::broadcast;
 
 use crate::config::CoreConfig;
 use crate::device::identity::DeviceIdentity;
@@ -93,8 +94,10 @@ pub struct SwiftWaveRuntime {
     pub identity: RwLock<Option<DeviceIdentity>>,
     pub discovery: RwLock<Option<Box<dyn crate::discovery::Discovery>>>,
     pub storage: Arc<dyn SecureStorage>,
-    pub quic_server: RwLock<Option<quinn::Endpoint>>,
-    pub actual_quic_port: RwLock<Option<u16>>,
+    pub(crate) quic_server: RwLock<Option<quinn::Endpoint>>,
+    pub(crate) actual_quic_port: RwLock<Option<u16>>,
+    pub(crate) accept_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
+    pub(crate) incoming_peers: broadcast::Sender<crate::device::identity::PeerIdentity>,
 }
 
 impl SwiftWaveRuntime {
@@ -124,6 +127,8 @@ impl SwiftWaveRuntime {
             storage,
             quic_server: RwLock::new(None),
             actual_quic_port: RwLock::new(None),
+            accept_task: RwLock::new(None),
+            incoming_peers: broadcast::channel(16).0,
         })
     }
 
@@ -169,6 +174,10 @@ impl SwiftWaveRuntime {
             .map_err(|e| SwiftWaveError::Internal(format!("Failed to get QUIC local addr: {e}")))?
             .port();
 
+        let endpoint_clone = endpoint.clone();
+        let identity_clone = identity.clone();
+        let incoming_tx = self.incoming_peers.clone();
+
         *self
             .quic_server
             .write()
@@ -189,6 +198,32 @@ impl SwiftWaveRuntime {
             SwiftWaveError::Internal("Runtime identity lock poisoned".to_string())
         })? = Some(identity);
 
+        let accept_task_handle = self.tokio_rt.spawn(async move {
+            while let Some(incoming) = endpoint_clone.accept().await {
+                let id_clone = identity_clone.clone();
+                let tx = incoming_tx.clone();
+                tokio::spawn(async move {
+                    if let Ok(conn) = incoming.await {
+                        if let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                            let result = crate::transport::quic::perform_noise_handshake(
+                                &mut send, &mut recv, false, &id_clone,
+                            )
+                            .await;
+                            if let Ok(peer) = result {
+                                let _ = tx.send(peer);
+                            }
+                        }
+                    }
+                });
+            }
+        });
+
+        *self
+            .accept_task
+            .write()
+            .map_err(|_| SwiftWaveError::Internal("accept_task lock poisoned".into()))? =
+            Some(accept_task_handle);
+
         *state = LifecycleState::Initialized;
 
         Ok(())
@@ -208,6 +243,20 @@ impl SwiftWaveRuntime {
 
         // Explicitly stop discovery before clearing other resources
         let _ = self.stop_discovery();
+
+        // Abort the accept loop
+        let accept_task = {
+            let mut accept_task_guard = self
+                .accept_task
+                .write()
+                .map_err(|_| SwiftWaveError::Internal("accept_task lock poisoned".to_string()))?;
+            accept_task_guard.take()
+        };
+
+        if let Some(task) = accept_task {
+            task.abort();
+            let _ = self.tokio_rt.block_on(task);
+        }
 
         // Close the QUIC Server Endpoint so it stops listening
         if let Ok(mut server) = self.quic_server.write() {
@@ -231,6 +280,52 @@ impl SwiftWaveRuntime {
         // Note: The actual Tokio runtime is dropped when `SwiftWaveRuntime` is dropped by the FFI boundary,
         // which will gracefully cancel all pending tasks.
         Ok(())
+    }
+
+    pub async fn connect(
+        &self,
+        addr: std::net::SocketAddr,
+    ) -> Result<(crate::device::identity::PeerIdentity, quinn::Connection)> {
+        let endpoint = {
+            let quic_server = self
+                .quic_server
+                .read()
+                .map_err(|_| SwiftWaveError::Internal("quic_server lock poisoned".to_string()))?;
+            quic_server
+                .as_ref()
+                .ok_or_else(|| {
+                    SwiftWaveError::Internal("QUIC endpoint not initialized".to_string())
+                })?
+                .clone()
+        };
+
+        let conn = endpoint
+            .connect(addr, "swiftwave.local")
+            .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?
+            .await
+            .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
+
+        let (mut send, mut recv) = conn
+            .open_bi()
+            .await
+            .map_err(|e| SwiftWaveError::QuicConnection(e.to_string()))?;
+
+        let identity = {
+            let id_lock = self
+                .identity
+                .read()
+                .map_err(|_| SwiftWaveError::Internal("identity lock poisoned".to_string()))?;
+            id_lock
+                .as_ref()
+                .ok_or_else(|| SwiftWaveError::Internal("Identity not loaded".to_string()))?
+                .clone()
+        };
+
+        let peer =
+            crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity)
+                .await?;
+
+        Ok((peer, conn))
     }
 
     /// Starts mDNS discovery on the local network using the actual QUIC port.
@@ -295,7 +390,28 @@ impl SwiftWaveRuntime {
         if let Some(mut mdns) = discovery_guard.take() {
             self.tokio_rt.block_on(mdns.stop())?;
         }
-
         Ok(())
+    }
+
+    /// Subscribe to incoming Peer identities.
+    pub fn subscribe_incoming_peers(
+        &self,
+    ) -> broadcast::Receiver<crate::device::identity::PeerIdentity> {
+        self.incoming_peers.subscribe()
+    }
+
+    /// Get the actual QUIC port the runtime is listening on.
+    pub fn actual_quic_port(&self) -> Option<u16> {
+        self.actual_quic_port.read().unwrap().clone()
+    }
+
+    /// Returns true if the accept task is currently running.
+    pub fn is_accept_task_active(&self) -> bool {
+        self.accept_task.read().unwrap().is_some()
+    }
+
+    /// Returns true if the QUIC server endpoint is currently active.
+    pub fn is_quic_server_active(&self) -> bool {
+        self.quic_server.read().unwrap().is_some()
     }
 }
