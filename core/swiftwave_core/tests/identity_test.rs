@@ -244,3 +244,38 @@ fn test_fingerprint_deterministic() {
     let expected_fp = bs58::encode(expected_hash.as_bytes()).into_string();
     assert_eq!(identity1.fingerprint(), PublicKeyFingerprint(expected_fp));
 }
+
+#[test]
+fn test_fingerprint_ignores_display_name() {
+    use swiftwave_core::device::identity::{PeerIdentity, PublicKeyFingerprint};
+
+    let pk = [42u8; 32];
+
+    // Create two identities with the exact same public key, but different display names.
+    let peer1 = PeerIdentity::from_public_key(pk, "Bob's iPhone");
+    let peer2 = PeerIdentity::from_public_key(pk, "Alice's Android");
+
+    // The display names must be different.
+    assert_ne!(peer1.display_name, peer2.display_name);
+
+    // But the fingerprint MUST be exactly the same.
+    assert_eq!(peer1.fingerprint, peer2.fingerprint);
+    assert_eq!(peer1.fingerprint.0.len(), peer2.fingerprint.0.len());
+}
+
+#[test]
+fn test_fingerprint_ignores_network_address() {
+    // Identity mathematically has no field for address. The fingerprint derivation
+    // does not take network state. We just assert that two peers created from the same key
+    // inherently have the same fingerprint.
+    // SwiftWave relies on the fact that identity is orthogonal to the transport socket.
+    use swiftwave_core::device::identity::PeerIdentity;
+
+    let pk = [77u8; 32];
+    let peer = PeerIdentity::from_public_key(pk, "Device");
+
+    let expected_hash = blake3::hash(&pk);
+    let expected_fp = bs58::encode(expected_hash.as_bytes()).into_string();
+
+    assert_eq!(peer.fingerprint.0, expected_fp);
+}

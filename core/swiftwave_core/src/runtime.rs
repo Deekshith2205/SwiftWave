@@ -282,6 +282,8 @@ impl SwiftWaveRuntime {
         Ok(())
     }
 
+    /// Connect to a generic QUIC endpoint and authenticate its identity via Noise XX.
+    /// This performs NO discovery-claim binding. It purely returns the authenticated peer.
     pub async fn connect(
         &self,
         addr: std::net::SocketAddr,
@@ -325,6 +327,18 @@ impl SwiftWaveRuntime {
             crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity)
                 .await?;
 
+        Ok((peer, conn))
+    }
+
+    /// Connect to a discovered peer and securely bind its authenticated Noise identity
+    /// against the fingerprint it claimed during discovery.
+    pub async fn connect_with_claim(
+        &self,
+        addr: std::net::SocketAddr,
+        expected_fingerprint: &crate::device::identity::PublicKeyFingerprint,
+    ) -> Result<(crate::device::identity::PeerIdentity, quinn::Connection)> {
+        let (peer, conn) = self.connect(addr).await?;
+        peer.verify_binding(expected_fingerprint)?;
         Ok((peer, conn))
     }
 

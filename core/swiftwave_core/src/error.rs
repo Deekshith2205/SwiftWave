@@ -76,6 +76,15 @@ pub enum SwiftWaveError {
     #[error("Identity error: {0}")]
     Identity(String),
 
+    /// Fingerprint mismatch — the authenticated identity does not match the mDNS claim.
+    #[error("Fingerprint mismatch: expected {expected}, got {actual}")]
+    FingerprintMismatch {
+        /// The fingerprint claimed by mDNS.
+        expected: String,
+        /// The actual authenticated fingerprint from the Noise handshake.
+        actual: String,
+    },
+
     // -----------------------------------------------------------------------
     // Transport
     // -----------------------------------------------------------------------

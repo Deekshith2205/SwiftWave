@@ -157,4 +157,20 @@ impl PeerIdentity {
             public_key,
         }
     }
+
+    /// Securely bind this authenticated identity to a claimed mDNS fingerprint.
+    ///
+    /// # Security note
+    /// This must be called AFTER the Noise XX handshake completes successfully.
+    /// If the fingerprints do not match, it returns `SwiftWaveError::FingerprintMismatch`.
+    pub fn verify_binding(&self, expected_fingerprint: &PublicKeyFingerprint) -> Result<()> {
+        if self.fingerprint == *expected_fingerprint {
+            Ok(())
+        } else {
+            Err(crate::error::SwiftWaveError::FingerprintMismatch {
+                expected: expected_fingerprint.0.clone(),
+                actual: self.fingerprint.0.clone(),
+            })
+        }
+    }
 }
