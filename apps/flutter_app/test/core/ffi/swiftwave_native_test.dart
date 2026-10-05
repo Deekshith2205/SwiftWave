@@ -52,6 +52,7 @@ void main() {
       expect(() => native.shutdown(), throwsStateError);
       expect(() => native.getDeviceId(), throwsStateError);
       expect(() => native.startDiscovery(), throwsStateError);
+      expect(() => native.subscribeAuthenticatedPeers(), throwsStateError);
     });
 
     test('startDiscovery degraded mode returns empty stream', () {
@@ -65,6 +66,17 @@ void main() {
     test('stopDiscovery in degraded mode is safe', () {
       final native = SwiftWaveNative();
       expect(() => native.stopDiscovery(), returnsNormally);
+    });
+
+    test('subscribeAuthenticatedPeers degraded mode returns empty stream', () {
+      final native = SwiftWaveNative();
+      final stream = native.subscribeAuthenticatedPeers();
+      expect(stream.isEmpty, completion(isTrue));
+    });
+
+    test('stopAuthenticatedPeers in degraded mode is safe', () {
+      final native = SwiftWaveNative();
+      expect(() => native.stopAuthenticatedPeers(), returnsNormally);
     });
   });
 }
