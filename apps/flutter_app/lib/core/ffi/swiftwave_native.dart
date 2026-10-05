@@ -107,7 +107,7 @@ class SwiftWaveNative {
   StreamController<DiscoveryEvent>? _discoveryStreamController;
 
   NativeCallable<Void Function(CAuthenticatedPeerEvent)>? _authCallable;
-  StreamController<AuthenticatedPeerEvent>? _authStreamController;
+  StreamController<AuthenticatedPeer>? _authStreamController;
 
   static bool _isLoaded = false;
   bool _isDestroyed = false;
@@ -337,8 +337,8 @@ class SwiftWaveNative {
   }
 
   /// Subscribe to authenticated peers.
-  /// Returns a stream of [AuthenticatedPeerEvent].
-  Stream<AuthenticatedPeerEvent> subscribeAuthenticatedPeers() {
+  /// Returns a stream of [AuthenticatedPeer].
+  Stream<AuthenticatedPeer> subscribeAuthenticatedPeers() {
     if (_isDestroyed) throw StateError('Handle is destroyed');
     if (!_isLoaded) return const Stream.empty();
 
@@ -346,7 +346,7 @@ class SwiftWaveNative {
       return _authStreamController!.stream;
     }
 
-    _authStreamController = StreamController<AuthenticatedPeerEvent>.broadcast(
+    _authStreamController = StreamController<AuthenticatedPeer>.broadcast(
       onCancel: () {
         stopAuthenticatedPeers();
       },
@@ -361,7 +361,7 @@ class SwiftWaveNative {
               fingerprint: _decodeCArray(event.fingerprint, 65),
               displayName: _decodeCArray(event.displayName, 65),
             );
-            _authStreamController?.add(AuthenticatedPeerEvent.incoming(peer));
+            _authStreamController?.add(peer);
           }
         });
 

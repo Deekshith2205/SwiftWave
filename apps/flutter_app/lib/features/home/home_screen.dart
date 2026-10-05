@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/models/device.dart';
 import '../../../core/models/transfer.dart';
+import '../../../core/models/authenticated_peer.dart';
+import '../../../core/providers/authenticated_peer_provider.dart';
 import '../../../design/components/swiftwave_avatar.dart';
 import '../../../design/components/swiftwave_buttons.dart';
 import '../../../design/components/swiftwave_cards.dart';
@@ -20,6 +22,7 @@ class HomeScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final settings = ref.watch(settingsProvider);
     final nearbyDevices = ref.watch(mockDevicesProvider);
+    final authenticatedPeers = ref.watch(authenticatedPeerProvider);
     final activeTransfers = ref.watch(activeTransfersProvider);
 
     return Scaffold(
@@ -78,6 +81,39 @@ class HomeScreen extends ConsumerWidget {
                 ),
               ),
             ),
+
+            // Authenticated Devices
+            if (authenticatedPeers.isNotEmpty) ...[
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Authenticated Devices',
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate((context, index) {
+                    final peer = authenticatedPeers[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _AuthenticatedPeerCard(peer: peer),
+                    );
+                  }, childCount: authenticatedPeers.length),
+                ),
+              ),
+            ],
 
             // Nearby Devices
             SliverToBoxAdapter(
@@ -215,6 +251,58 @@ class _DeviceCard extends StatelessWidget {
           ),
           SwiftWaveGhostButton(
             label: 'Connect',
+            onPressed: () => context.push(AppRoutes.send),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuthenticatedPeerCard extends StatelessWidget {
+  final AuthenticatedPeer peer;
+
+  const _AuthenticatedPeerCard({required this.peer});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shortFingerprint = peer.fingerprint.length > 8
+        ? peer.fingerprint.substring(0, 8)
+        : peer.fingerprint;
+
+    return SwiftWaveCard(
+      onTap: () {}, // No action yet for authenticated devices
+      child: Row(
+        children: [
+          SwiftWaveAvatar(deviceName: peer.displayName),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(peer.displayName, style: theme.textTheme.titleSmall),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.verified_user_rounded,
+                      size: 14,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Authenticated • $shortFingerprint',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          SwiftWaveGhostButton(
+            label: 'Send',
             onPressed: () => context.push(AppRoutes.send),
           ),
         ],
