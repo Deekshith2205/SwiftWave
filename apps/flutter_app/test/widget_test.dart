@@ -34,7 +34,7 @@ class FakeSwiftWaveNative implements SwiftWaveNative {
   void stopDiscovery() {}
 
   @override
-  Stream<AuthenticatedPeerEvent> subscribeAuthenticatedPeers() =>
+  Stream<AuthenticatedPeer> subscribeAuthenticatedPeers() =>
       const Stream.empty();
 
   @override

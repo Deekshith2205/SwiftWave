@@ -6,7 +6,7 @@ import 'runtime_provider.dart';
 
 class AuthenticatedPeerNotifier extends StateNotifier<List<AuthenticatedPeer>> {
   SwiftWaveNative? _native;
-  StreamSubscription<AuthenticatedPeerEvent>? _subscription;
+  StreamSubscription<AuthenticatedPeer>? _subscription;
 
   AuthenticatedPeerNotifier() : super([]);
 
@@ -18,12 +18,14 @@ class AuthenticatedPeerNotifier extends StateNotifier<List<AuthenticatedPeer>> {
 
     _native = native;
     try {
-      _subscription = _native!.subscribeAuthenticatedPeers().listen((event) {
-        if (event is IncomingAuthenticatedPeer) {
-          // Check for duplicates before adding
-          if (!state.any((p) => p.fingerprint == event.peer.fingerprint)) {
-            state = [...state, event.peer];
-          }
+      _subscription = _native!.subscribeAuthenticatedPeers().listen((peer) {
+        // Check for duplicates before adding, using fingerprint as identity key
+        if (!state.any((p) => p.fingerprint == peer.fingerprint)) {
+          state = [...state, peer];
+        } else {
+          // If the fingerprint exists but the display name changed, we could update it,
+          // but the instructions say "E. Same fingerprint, different display name ... Expected: still one peer."
+          // So we don't modify the state.
         }
       });
     } catch (e) {
