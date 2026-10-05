@@ -238,3 +238,203 @@ fn test_discovery_destroy_poisoned_mutex_recovery() {
     // Destroy must recover the poisoned mutex, await the task, and not leak
     swiftwave_destroy(handle);
 }
+
+#[cfg(windows)]
+#[test]
+fn test_authenticated_peers_lifecycle() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    assert!(!handle.is_null());
+
+    let status = swiftwave_init(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    extern "C" fn dummy_callback(_event: CAuthenticatedPeerEvent) {}
+
+    let status = swiftwave_subscribe_authenticated_peers(handle, Some(dummy_callback));
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    let status = swiftwave_subscribe_authenticated_peers(handle, Some(dummy_callback));
+    assert!(matches!(status, SwiftWaveStatus::InternalError));
+
+    let status = swiftwave_stop_authenticated_peers(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    let status = swiftwave_stop_authenticated_peers(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    swiftwave_shutdown(handle);
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_authenticated_peers_destroy_with_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CAuthenticatedPeerEvent) {}
+    swiftwave_subscribe_authenticated_peers(handle, Some(dummy_callback));
+
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_authenticated_peers_shutdown_followed_by_destroy() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CAuthenticatedPeerEvent) {}
+    swiftwave_subscribe_authenticated_peers(handle, Some(dummy_callback));
+
+    let status = swiftwave_shutdown(handle);
+    assert!(matches!(status, SwiftWaveStatus::Success));
+
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_authenticated_peers_destroy_poisoned_mutex_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut path = dir.path().to_str().unwrap().to_string();
+    path.push('\0');
+    let c_path = path.as_ptr() as *const std::os::raw::c_char;
+
+    let handle = swiftwave_create(c_path);
+    swiftwave_init(handle);
+
+    extern "C" fn dummy_callback(_event: CAuthenticatedPeerEvent) {}
+    swiftwave_subscribe_authenticated_peers(handle, Some(dummy_callback));
+
+    let h = unsafe { &*handle };
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _guard = h.auth_task.lock().unwrap();
+        panic!("deliberate poison");
+    }));
+
+    assert!(h.auth_task.is_poisoned());
+
+    swiftwave_destroy(handle);
+}
+
+#[cfg(windows)]
+#[test]
+fn test_authenticated_peers_real_callback_delivery() {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    // Global state for callback capture
+    static CALLBACK_DATA: Mutex<Option<(String, String)>> = Mutex::new(None);
+    *CALLBACK_DATA.lock().unwrap() = None;
+
+    extern "C" fn real_auth_callback(event: CAuthenticatedPeerEvent) {
+        let fp = unsafe { CStr::from_ptr(event.fingerprint.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        let dn = unsafe { CStr::from_ptr(event.display_name.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        *CALLBACK_DATA.lock().unwrap() = Some((fp, dn));
+    }
+
+    // 1. Create server SwiftWave runtime/handle
+    let dir_s = tempfile::tempdir().unwrap();
+    let mut path_s = dir_s.path().to_str().unwrap().to_string();
+    path_s.push('\0');
+    let server_handle = swiftwave_create(path_s.as_ptr() as *const std::os::raw::c_char);
+    swiftwave_init(server_handle);
+
+    // 2. Subscribe authenticated-peer callback on the server
+    swiftwave_subscribe_authenticated_peers(server_handle, Some(real_auth_callback));
+
+    // 3. Create independent client runtime/handle
+    let dir_c = tempfile::tempdir().unwrap();
+    let mut path_c = dir_c.path().to_str().unwrap().to_string();
+    path_c.push('\0');
+    let client_handle = swiftwave_create(path_c.as_ptr() as *const std::os::raw::c_char);
+    swiftwave_init(client_handle);
+
+    // Get client's fingerprint to assert later
+    let client_fp_ptr = swiftwave_get_device_id(client_handle);
+    let client_fp = unsafe { CStr::from_ptr(client_fp_ptr) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { swiftwave_free_string(client_fp_ptr) };
+
+    let server_h = unsafe { &*server_handle };
+    let client_h = unsafe { &*client_handle };
+
+    // 4. Connect client to the server's actual QUIC endpoint
+    let server_port = server_h.runtime.actual_quic_port().unwrap();
+    let server_addr = format!("127.0.0.1:{}", server_port).parse().unwrap();
+
+    // 5. Complete Noise XX authentication
+    let _ = client_h
+        .runtime
+        .tokio_rt
+        .block_on(client_h.runtime.connect(server_addr))
+        .expect("Failed to connect client to server");
+
+    // 6. Wait for the server's authenticated-peer callback with a bounded timeout
+    let start = Instant::now();
+    let mut invoked = false;
+    let mut received_fp = String::new();
+    let mut received_dn = String::new();
+
+    while start.elapsed() < Duration::from_secs(5) {
+        if let Some((fp, dn)) = CALLBACK_DATA.lock().unwrap().clone() {
+            received_fp = fp;
+            received_dn = dn;
+            invoked = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // 7. Assert callback was invoked
+    assert!(invoked, "Callback was never invoked");
+
+    // 8. Assert the received fingerprint matches the client's authenticated identity
+    assert_eq!(received_fp, client_fp, "Fingerprint mismatch");
+
+    // 9. Assert display name is correct/expected
+    assert_eq!(received_dn, "Unknown Peer", "Display name mismatch");
+
+    // 10. Stop subscription
+    swiftwave_stop_authenticated_peers(server_handle);
+
+    // Verify lifecycle regression: no further callbacks after stop
+    *CALLBACK_DATA.lock().unwrap() = None;
+    let _ = client_h
+        .runtime
+        .tokio_rt
+        .block_on(client_h.runtime.connect(server_addr))
+        .expect("Failed to connect client to server");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        CALLBACK_DATA.lock().unwrap().is_none(),
+        "Callback was invoked after stop returned"
+    );
+
+    // 11. Cleanly destroy both handles
+    swiftwave_shutdown(client_handle);
+    swiftwave_destroy(client_handle);
+    swiftwave_shutdown(server_handle);
+    swiftwave_destroy(server_handle);
+}

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:ffi/ffi.dart';
 import '../models/discovery.dart';
+import '../models/authenticated_peer.dart';
 import 'package:flutter/foundation.dart';
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,22 @@ typedef _SwiftWaveStopDiscoveryNative =
     Int32 Function(Pointer<SwiftWaveHandle>);
 typedef _SwiftWaveStopDiscoveryDart = int Function(Pointer<SwiftWaveHandle>);
 
+typedef _SwiftWaveSubscribeAuthenticatedPeersNative =
+    Int32 Function(
+      Pointer<SwiftWaveHandle> handle,
+      Pointer<NativeFunction<Void Function(CAuthenticatedPeerEvent)>> callback,
+    );
+typedef _SwiftWaveSubscribeAuthenticatedPeersDart =
+    int Function(
+      Pointer<SwiftWaveHandle> handle,
+      Pointer<NativeFunction<Void Function(CAuthenticatedPeerEvent)>> callback,
+    );
+
+typedef _SwiftWaveStopAuthenticatedPeersNative =
+    Int32 Function(Pointer<SwiftWaveHandle>);
+typedef _SwiftWaveStopAuthenticatedPeersDart =
+    int Function(Pointer<SwiftWaveHandle>);
+
 typedef _SwiftWaveVersionNative = Pointer<Utf8> Function();
 typedef _SwiftWaveVersionDart = Pointer<Utf8> Function();
 
@@ -82,10 +99,15 @@ class SwiftWaveNative {
   static late final _SwiftWaveFreeStringDart _freeString;
   static late final _SwiftWaveStartDiscoveryDart _startDiscovery;
   static late final _SwiftWaveStopDiscoveryDart _stopDiscovery;
+  static late final _SwiftWaveSubscribeAuthenticatedPeersDart _subscribeAuth;
+  static late final _SwiftWaveStopAuthenticatedPeersDart _stopAuth;
   static late final _SwiftWaveVersionDart _version;
 
   NativeCallable<Void Function(CDiscoveryEvent)>? _discoveryCallable;
   StreamController<DiscoveryEvent>? _discoveryStreamController;
+
+  NativeCallable<Void Function(CAuthenticatedPeerEvent)>? _authCallable;
+  StreamController<AuthenticatedPeerEvent>? _authStreamController;
 
   static bool _isLoaded = false;
   bool _isDestroyed = false;
@@ -145,6 +167,16 @@ class SwiftWaveNative {
           _SwiftWaveStopDiscoveryNative,
           _SwiftWaveStopDiscoveryDart
         >('swiftwave_stop_discovery');
+    _subscribeAuth = lib
+        .lookupFunction<
+          _SwiftWaveSubscribeAuthenticatedPeersNative,
+          _SwiftWaveSubscribeAuthenticatedPeersDart
+        >('swiftwave_subscribe_authenticated_peers');
+    _stopAuth = lib
+        .lookupFunction<
+          _SwiftWaveStopAuthenticatedPeersNative,
+          _SwiftWaveStopAuthenticatedPeersDart
+        >('swiftwave_stop_authenticated_peers');
     _version = lib
         .lookupFunction<_SwiftWaveVersionNative, _SwiftWaveVersionDart>(
           'swiftwave_version',
@@ -213,6 +245,7 @@ class SwiftWaveNative {
     }
 
     stopDiscovery();
+    stopAuthenticatedPeers();
 
     if (_handle != nullptr) {
       _destroy(_handle);
@@ -303,6 +336,61 @@ class SwiftWaveNative {
     }
   }
 
+  /// Subscribe to authenticated peers.
+  /// Returns a stream of [AuthenticatedPeerEvent].
+  Stream<AuthenticatedPeerEvent> subscribeAuthenticatedPeers() {
+    if (_isDestroyed) throw StateError('Handle is destroyed');
+    if (!_isLoaded) return const Stream.empty();
+
+    if (_authStreamController != null) {
+      return _authStreamController!.stream;
+    }
+
+    _authStreamController = StreamController<AuthenticatedPeerEvent>.broadcast(
+      onCancel: () {
+        stopAuthenticatedPeers();
+      },
+    );
+
+    _authCallable =
+        NativeCallable<Void Function(CAuthenticatedPeerEvent)>.listener((
+          CAuthenticatedPeerEvent event,
+        ) {
+          if (true) {
+            final peer = AuthenticatedPeer(
+              fingerprint: _decodeCArray(event.fingerprint, 65),
+              displayName: _decodeCArray(event.displayName, 65),
+            );
+            _authStreamController?.add(AuthenticatedPeerEvent.incoming(peer));
+          }
+        });
+
+    final status = _subscribeAuth(_handle, _authCallable!.nativeFunction);
+    if (status != 0) {
+      _authCallable?.close();
+      _authCallable = null;
+      throw Exception('subscribeAuthenticatedPeers failed with status $status');
+    }
+
+    return _authStreamController!.stream;
+  }
+
+  /// Stop subscribing to authenticated peers.
+  void stopAuthenticatedPeers() {
+    if (!_isLoaded || _isDestroyed) return;
+
+    if (_authCallable != null) {
+      _stopAuth(_handle);
+      _authCallable?.close();
+      _authCallable = null;
+    }
+
+    if (_authStreamController != null) {
+      _authStreamController?.close();
+      _authStreamController = null;
+    }
+  }
+
   /// Get the device ID string.
   String? getDeviceId() {
     if (_isDestroyed) throw StateError('Handle has been destroyed');
@@ -347,4 +435,12 @@ final class CDiscoveryEvent extends Struct {
 
   @Uint64()
   external int lastSeen;
+}
+
+final class CAuthenticatedPeerEvent extends Struct {
+  @Array(65)
+  external Array<Int8> fingerprint;
+
+  @Array(65)
+  external Array<Int8> displayName;
 }

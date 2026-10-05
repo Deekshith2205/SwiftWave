@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:swiftwave_app/core/providers/runtime_provider.dart';
 import 'package:swiftwave_app/core/ffi/swiftwave_native.dart';
 import 'package:swiftwave_app/core/models/discovery.dart';
+import 'package:swiftwave_app/core/models/authenticated_peer.dart';
 import 'package:swiftwave_app/app/app.dart';
 import 'package:swiftwave_app/shared/widgets/scaffold_shell.dart';
 
@@ -31,6 +32,13 @@ class FakeSwiftWaveNative implements SwiftWaveNative {
 
   @override
   void stopDiscovery() {}
+
+  @override
+  Stream<AuthenticatedPeerEvent> subscribeAuthenticatedPeers() =>
+      const Stream.empty();
+
+  @override
+  void stopAuthenticatedPeers() {}
 }
 
 void main() {

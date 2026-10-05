@@ -64,6 +64,7 @@ impl From<SwiftWaveError> for SwiftWaveStatus {
 pub struct SwiftWaveHandle {
     pub(crate) runtime: Box<SwiftWaveRuntime>,
     pub(crate) discovery_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    pub(crate) auth_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +148,7 @@ pub extern "C" fn swiftwave_create(data_directory: *const c_char) -> *mut SwiftW
                 let handle = Box::new(SwiftWaveHandle {
                     runtime: Box::new(runtime),
                     discovery_task: std::sync::Mutex::new(None),
+                    auth_task: std::sync::Mutex::new(None),
                 });
                 Box::into_raw(handle)
             }
@@ -219,6 +221,16 @@ pub extern "C" fn swiftwave_shutdown(handle: *mut SwiftWaveHandle) -> SwiftWaveS
             let _ = h.runtime.tokio_rt.block_on(task_handle);
         }
 
+        // Must explicitly stop auth task if it's running.
+        let mut auth_guard = match h.auth_task.lock() {
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner(),
+        };
+        if let Some(task_handle) = auth_guard.take() {
+            task_handle.abort();
+            let _ = h.runtime.tokio_rt.block_on(task_handle);
+        }
+
         match h.runtime.shutdown() {
             Ok(_) => SwiftWaveStatus::Success,
             Err(e) => e.into(),
@@ -249,6 +261,16 @@ pub extern "C" fn swiftwave_destroy(handle: *mut SwiftWaveHandle) {
 
         if let Some(task_handle) = task_guard.take() {
             let _ = h.runtime.stop_discovery();
+            let _ = h.runtime.tokio_rt.block_on(task_handle);
+        }
+
+        let mut auth_guard = match h.auth_task.lock() {
+            Ok(guard) => guard,
+            Err(poison_error) => poison_error.into_inner(),
+        };
+
+        if let Some(task_handle) = auth_guard.take() {
+            task_handle.abort();
             let _ = h.runtime.tokio_rt.block_on(task_handle);
         }
 
@@ -461,6 +483,85 @@ pub extern "C" fn swiftwave_stop_discovery(handle: *mut SwiftWaveHandle) -> Swif
                 return e.into();
             }
             // Block until the callback consumer fully terminates
+            let _ = h.runtime.tokio_rt.block_on(task_handle);
+        }
+
+        SwiftWaveStatus::Success
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Authenticated Peer Events
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+pub struct CAuthenticatedPeerEvent {
+    pub fingerprint: [c_char; 65],
+    pub display_name: [c_char; 65],
+}
+
+#[no_mangle]
+pub extern "C" fn swiftwave_subscribe_authenticated_peers(
+    handle: *mut SwiftWaveHandle,
+    callback: Option<extern "C" fn(CAuthenticatedPeerEvent)>,
+) -> SwiftWaveStatus {
+    catch_panic_status(|| {
+        if handle.is_null() {
+            return SwiftWaveStatus::NullPointer;
+        }
+        let cb = match callback {
+            Some(c) => c,
+            None => return SwiftWaveStatus::NullPointer,
+        };
+        let h = unsafe { &*handle };
+
+        let mut task_guard = match h.auth_task.lock() {
+            Ok(g) => g,
+            Err(_) => return SwiftWaveStatus::InternalError,
+        };
+        if task_guard.is_some() {
+            return SwiftWaveStatus::InternalError;
+        }
+
+        let mut rx = h.runtime.subscribe_incoming_peers();
+
+        let task_handle = h.runtime.tokio_rt.spawn(async move {
+            while let Ok(peer) = rx.recv().await {
+                let mut fp = [0; 65];
+                let mut dn = [0; 65];
+                copy_str_to_c_array(&mut fp, &peer.fingerprint.0);
+                copy_str_to_c_array(&mut dn, &peer.display_name);
+
+                let c_event = CAuthenticatedPeerEvent {
+                    fingerprint: fp,
+                    display_name: dn,
+                };
+                cb(c_event);
+            }
+        });
+
+        *task_guard = Some(task_handle);
+        SwiftWaveStatus::Success
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn swiftwave_stop_authenticated_peers(
+    handle: *mut SwiftWaveHandle,
+) -> SwiftWaveStatus {
+    catch_panic_status(|| {
+        if handle.is_null() {
+            return SwiftWaveStatus::NullPointer;
+        }
+        let h = unsafe { &*handle };
+
+        let mut task_guard = match h.auth_task.lock() {
+            Ok(g) => g,
+            Err(_) => return SwiftWaveStatus::InternalError,
+        };
+
+        if let Some(task_handle) = task_guard.take() {
+            task_handle.abort();
             let _ = h.runtime.tokio_rt.block_on(task_handle);
         }
 
