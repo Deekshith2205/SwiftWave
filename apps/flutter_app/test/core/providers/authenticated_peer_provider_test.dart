@@ -64,7 +64,7 @@ void main() {
       const AuthenticatedPeer(fingerprint: 'abc', displayName: 'Test Device'),
     );
 
-    await Future.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
     expect(notifier.state.length, 1);
     expect(notifier.state.first.fingerprint, 'abc');
     expect(notifier.state.first.displayName, 'Test Device');
@@ -82,7 +82,7 @@ void main() {
       const AuthenticatedPeer(fingerprint: 'abc', displayName: 'Device 1'),
     );
 
-    await Future.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
     expect(notifier.state.length, 1);
   });
 
@@ -98,7 +98,7 @@ void main() {
       const AuthenticatedPeer(fingerprint: 'B', displayName: 'Device B'),
     );
 
-    await Future.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
     expect(notifier.state.length, 2);
   });
 
@@ -114,7 +114,7 @@ void main() {
       const AuthenticatedPeer(fingerprint: 'A', displayName: 'Device 2'),
     );
 
-    await Future.delayed(Duration.zero);
+    await Future<void>.delayed(Duration.zero);
     expect(notifier.state.length, 1);
     expect(
       notifier.state.first.displayName,
@@ -122,7 +122,7 @@ void main() {
     ); // state isn't overwritten
   });
 
-  test('Provider disposal calls stopAuthenticatedPeers', () {
+  test('Provider disposal calls stopAuthenticatedPeers', () async {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
@@ -130,7 +130,9 @@ void main() {
       ],
     );
 
-    final sub = container.listen(authenticatedPeerProvider, (_, __) {});
+    final sub = container.listen(authenticatedPeerProvider, (_, _) {});
+
+    await container.read(swiftWaveRuntimeProvider.future);
 
     // allow listener to run
     expect(mockNative.stopCalled, isFalse);
