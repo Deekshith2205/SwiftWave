@@ -38,3 +38,26 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# --- SwiftWave FFI Integration ---
+get_filename_component(CARGO_WORKSPACE_DIR "${CMAKE_SOURCE_DIR}/../../.." ABSOLUTE)
+
+# 1. Custom target to build the Rust FFI library
+# We run `cargo build` in the root workspace directory.
+add_custom_target(swiftwave_ffi_target ALL
+  COMMAND cargo build -p swiftwave_ffi $<IF:$<CONFIG:Debug>,,--release>
+  WORKING_DIRECTORY "${CARGO_WORKSPACE_DIR}"
+  COMMENT "Building Rust swiftwave_ffi library ($<CONFIG>)"
+)
+
+# 2. Make the Flutter application depend on the Rust library target
+add_dependencies(${BINARY_NAME} swiftwave_ffi_target)
+
+# 3. Copy the compiled DLL to the CMake output directory (alongside the .exe)
+add_custom_command(
+  TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CARGO_WORKSPACE_DIR}/target/$<IF:$<CONFIG:Debug>,debug,release>/swiftwave_ffi.dll"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/swiftwave_ffi.dll"
+  COMMENT "Copying swiftwave_ffi.dll to application directory"
+)
