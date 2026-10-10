@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/models/device.dart';
+import '../../../core/models/discovery.dart';
 import '../../../core/models/transfer.dart';
 import '../../../core/models/authenticated_peer.dart';
 import '../../../core/providers/authenticated_peer_provider.dart';
+import '../../../core/providers/discovery_provider.dart';
 import '../../../design/components/swiftwave_avatar.dart';
 import '../../../design/components/swiftwave_buttons.dart';
 import '../../../design/components/swiftwave_cards.dart';
@@ -21,7 +23,7 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final settings = ref.watch(settingsProvider);
-    final nearbyDevices = ref.watch(mockDevicesProvider);
+    final nearbyDevices = ref.watch(discoveryProvider);
     final authenticatedPeers = ref.watch(authenticatedPeerProvider);
     final activeTransfers = ref.watch(activeTransfersProvider);
 
@@ -222,7 +224,7 @@ class HomeScreen extends ConsumerWidget {
 }
 
 class _DeviceCard extends StatelessWidget {
-  final Device device;
+  final DiscoveredPeer device;
 
   const _DeviceCard({required this.device});
 
@@ -230,7 +232,7 @@ class _DeviceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return SwiftWaveCard(
-      onTap: () => context.push('${AppRoutes.devices}/${device.id}'),
+      onTap: () => context.push('${AppRoutes.devices}/${device.fingerprint}'),
       child: Row(
         children: [
           SwiftWaveAvatar(deviceName: device.displayName),
