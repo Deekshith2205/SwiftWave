@@ -93,7 +93,10 @@ pub async fn perform_noise_handshake(
     recv: &mut quinn::RecvStream,
     is_initiator: bool,
     local_identity: &crate::device::identity::DeviceIdentity,
-) -> Result<crate::device::identity::PeerIdentity> {
+) -> Result<(
+    crate::device::identity::PeerIdentity,
+    crate::security::session::SecureSession,
+)> {
     let mut state = if is_initiator {
         crate::security::handshake::HandshakeState::new_initiator(
             local_identity.secret_key_bytes(),
@@ -114,8 +117,8 @@ pub async fn perform_noise_handshake(
         }
     }
 
-    let (_session, peer_identity, _) = state.into_secure_session()?;
-    Ok(peer_identity)
+    let (session, peer_identity, _) = state.into_secure_session()?;
+    Ok((peer_identity, session))
 }
 
 /// A TLS certificate verifier that accepts any certificate.

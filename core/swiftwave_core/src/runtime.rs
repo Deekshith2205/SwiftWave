@@ -7,6 +7,7 @@
 //! its lifecycle safely.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
@@ -82,6 +83,129 @@ impl SecureStorage for InMemoryMockStorage {
 }
 
 // ---------------------------------------------------------------------------
+// Authenticated Connection
+// ---------------------------------------------------------------------------
+
+static NEXT_CONNECTION_ID: AtomicU64 = AtomicU64::new(1);
+
+/// An authenticated, active QUIC connection to a peer.
+///
+/// **Important Note on `SecureSession`**:
+/// - `SecureSession` (which wraps `snow::TransportState`) is strictly stateful.
+/// - It must NOT be concurrently shared across independent QUIC streams because
+///   `snow` enforces sequential nonces. Out-of-order writes/reads will fail MAC validation.
+/// - Any future control protocol use must preserve message ordering.
+/// - File transfer chunk encryption is completely separate and uses deterministic nonces
+///   derived per-chunk; it must NOT misuse this Noise `TransportState`.
+pub struct AuthenticatedConnection {
+    id: u64,
+    peer: crate::device::identity::PeerIdentity,
+    quic_connection: quinn::Connection,
+    secure_session: Arc<Mutex<crate::security::session::SecureSession>>,
+}
+
+impl AuthenticatedConnection {
+    pub fn new(
+        peer: crate::device::identity::PeerIdentity,
+        quic_connection: quinn::Connection,
+        secure_session: crate::security::session::SecureSession,
+    ) -> Self {
+        Self {
+            id: NEXT_CONNECTION_ID.fetch_add(1, Ordering::Relaxed),
+            peer,
+            quic_connection,
+            secure_session: Arc::new(Mutex::new(secure_session)),
+        }
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn peer(&self) -> &crate::device::identity::PeerIdentity {
+        &self.peer
+    }
+
+    pub fn quic_connection(&self) -> &quinn::Connection {
+        &self.quic_connection
+    }
+
+    pub fn secure_session(&self) -> Arc<Mutex<crate::security::session::SecureSession>> {
+        self.secure_session.clone()
+    }
+}
+
+/// A registry managing active authenticated connections.
+pub struct ConnectionRegistry {
+    connections: RwLock<HashMap<String, Arc<AuthenticatedConnection>>>,
+    pub state_changed: Arc<tokio::sync::Notify>,
+}
+
+impl ConnectionRegistry {
+    pub fn new() -> Self {
+        Self {
+            connections: RwLock::new(HashMap::new()),
+            state_changed: Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+
+    /// Register a new authenticated connection.
+    /// Replaces and returns any existing connection for the same fingerprint,
+    /// ensuring at most one active connection per peer.
+    pub fn register(
+        &self,
+        conn: Arc<AuthenticatedConnection>,
+    ) -> Option<Arc<AuthenticatedConnection>> {
+        let old = {
+            let mut map = self.connections.write().unwrap();
+            map.insert(conn.peer().fingerprint.0.clone(), conn)
+        };
+        self.state_changed.notify_waiters();
+        old
+    }
+
+    pub fn get_by_fingerprint(&self, fingerprint: &str) -> Option<Arc<AuthenticatedConnection>> {
+        let map = self.connections.read().unwrap();
+        map.get(fingerprint).cloned()
+    }
+
+    pub fn remove_by_id(&self, fingerprint: &str, expected_id: u64) -> bool {
+        let removed = {
+            let mut map = self.connections.write().unwrap();
+            if let Some(conn) = map.get(fingerprint) {
+                if conn.id() == expected_id {
+                    map.remove(fingerprint);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if removed {
+            self.state_changed.notify_waiters();
+        }
+        removed
+    }
+
+    pub fn clear(&self) -> Vec<Arc<AuthenticatedConnection>> {
+        let conns = {
+            let mut map = self.connections.write().unwrap();
+            map.drain().map(|(_, v)| v).collect()
+        };
+        self.state_changed.notify_waiters();
+        conns
+    }
+
+    /// Wait for any change in the connection registry.
+    /// This is primarily useful for deterministic testing.
+    pub async fn wait_for_state_change(&self) {
+        self.state_changed.notified().await;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Application Runtime
 // ---------------------------------------------------------------------------
 
@@ -98,6 +222,7 @@ pub struct SwiftWaveRuntime {
     pub(crate) actual_quic_port: RwLock<Option<u16>>,
     pub(crate) accept_task: RwLock<Option<tokio::task::JoinHandle<()>>>,
     pub(crate) incoming_peers: broadcast::Sender<crate::device::identity::PeerIdentity>,
+    pub(crate) connections: Arc<ConnectionRegistry>,
 }
 
 impl SwiftWaveRuntime {
@@ -129,6 +254,7 @@ impl SwiftWaveRuntime {
             actual_quic_port: RwLock::new(None),
             accept_task: RwLock::new(None),
             incoming_peers: broadcast::channel(16).0,
+            connections: Arc::new(ConnectionRegistry::new()),
         })
     }
 
@@ -177,6 +303,8 @@ impl SwiftWaveRuntime {
         let endpoint_clone = endpoint.clone();
         let identity_clone = identity.clone();
         let incoming_tx = self.incoming_peers.clone();
+        let connections_clone = self.connections.clone();
+        let rt_handle = self.tokio_rt.handle().clone();
 
         *self
             .quic_server
@@ -202,6 +330,8 @@ impl SwiftWaveRuntime {
             while let Some(incoming) = endpoint_clone.accept().await {
                 let id_clone = identity_clone.clone();
                 let tx = incoming_tx.clone();
+                let connections = connections_clone.clone();
+                let rt = rt_handle.clone();
                 tokio::spawn(async move {
                     if let Ok(conn) = incoming.await {
                         if let Ok((mut send, mut recv)) = conn.accept_bi().await {
@@ -209,7 +339,29 @@ impl SwiftWaveRuntime {
                                 &mut send, &mut recv, false, &id_clone,
                             )
                             .await;
-                            if let Ok(peer) = result {
+                            if let Ok((peer, session)) = result {
+                                let auth_conn = Arc::new(AuthenticatedConnection::new(
+                                    peer.clone(),
+                                    conn.clone(),
+                                    session,
+                                ));
+
+                                let old_conn = connections.register(auth_conn.clone());
+                                if let Some(old) = old_conn {
+                                    old.quic_connection()
+                                        .close(0_u32.into(), b"superseded by new connection");
+                                }
+
+                                let connections_monitor = connections.clone();
+                                let conn_id = auth_conn.id();
+                                let fingerprint = peer.fingerprint.0.clone();
+                                let quic_conn = conn.clone();
+
+                                rt.spawn(async move {
+                                    let _ = quic_conn.closed().await;
+                                    connections_monitor.remove_by_id(&fingerprint, conn_id);
+                                });
+
                                 let _ = tx.send(peer);
                             }
                         }
@@ -269,6 +421,12 @@ impl SwiftWaveRuntime {
             *port = None;
         }
 
+        let active_conns = self.connections.clear();
+        for conn in active_conns {
+            conn.quic_connection()
+                .close(0_u32.into(), b"runtime shutdown");
+        }
+
         // Clear resources safely
         if let Ok(mut identity) = self.identity.write() {
             *identity = None;
@@ -287,7 +445,7 @@ impl SwiftWaveRuntime {
     pub async fn connect(
         &self,
         addr: std::net::SocketAddr,
-    ) -> Result<(crate::device::identity::PeerIdentity, quinn::Connection)> {
+    ) -> Result<Arc<AuthenticatedConnection>> {
         let endpoint = {
             let quic_server = self
                 .quic_server
@@ -323,11 +481,33 @@ impl SwiftWaveRuntime {
                 .clone()
         };
 
-        let peer =
+        let (peer, session) =
             crate::transport::quic::perform_noise_handshake(&mut send, &mut recv, true, &identity)
                 .await?;
 
-        Ok((peer, conn))
+        let auth_conn = Arc::new(AuthenticatedConnection::new(
+            peer.clone(),
+            conn.clone(),
+            session,
+        ));
+
+        let old_conn = self.connections.register(auth_conn.clone());
+        if let Some(old) = old_conn {
+            old.quic_connection()
+                .close(0_u32.into(), b"superseded by new connection");
+        }
+
+        let connections_monitor = self.connections.clone();
+        let conn_id = auth_conn.id();
+        let fingerprint = peer.fingerprint.0.clone();
+        let quic_conn = conn.clone();
+
+        self.tokio_rt.spawn(async move {
+            let _ = quic_conn.closed().await;
+            connections_monitor.remove_by_id(&fingerprint, conn_id);
+        });
+
+        Ok(auth_conn)
     }
 
     /// Connect to a discovered peer and securely bind its authenticated Noise identity
@@ -336,10 +516,13 @@ impl SwiftWaveRuntime {
         &self,
         addr: std::net::SocketAddr,
         expected_fingerprint: &crate::device::identity::PublicKeyFingerprint,
-    ) -> Result<(crate::device::identity::PeerIdentity, quinn::Connection)> {
-        let (peer, conn) = self.connect(addr).await?;
-        peer.verify_binding(expected_fingerprint)?;
-        Ok((peer, conn))
+    ) -> Result<Arc<AuthenticatedConnection>> {
+        let auth_conn = self.connect(addr).await?;
+        if let Err(e) = auth_conn.peer().verify_binding(expected_fingerprint) {
+            self.close_connection(&auth_conn.peer().fingerprint.0);
+            return Err(e);
+        }
+        Ok(auth_conn)
     }
 
     /// Starts mDNS discovery on the local network using the actual QUIC port.
@@ -412,6 +595,28 @@ impl SwiftWaveRuntime {
         &self,
     ) -> broadcast::Receiver<crate::device::identity::PeerIdentity> {
         self.incoming_peers.subscribe()
+    }
+
+    /// Close a specific connection explicitly.
+    pub fn close_connection(&self, fingerprint: &str) -> bool {
+        if let Some(conn) = self.connections.get_by_fingerprint(fingerprint) {
+            conn.quic_connection()
+                .close(0_u32.into(), b"explicit local close");
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Wait for any change in the connection registry.
+    /// This is primarily useful for deterministic testing.
+    pub async fn wait_for_connection_state_change(&self) {
+        self.connections.wait_for_state_change().await;
+    }
+
+    /// Retrieve an active authenticated connection by fingerprint.
+    pub fn get_connection(&self, fingerprint: &str) -> Option<Arc<AuthenticatedConnection>> {
+        self.connections.get_by_fingerprint(fingerprint)
     }
 
     /// Get the actual QUIC port the runtime is listening on.
