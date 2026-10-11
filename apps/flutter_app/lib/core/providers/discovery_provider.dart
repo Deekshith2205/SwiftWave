@@ -21,8 +21,9 @@ class DiscoveryNotifier extends StateNotifier<List<DiscoveredPeer>> {
       _subscription = _native!.startDiscovery().listen((event) {
         if (event is PeerFound) {
           final peer = event.peer;
-          final existingIndex =
-              state.indexWhere((p) => p.fingerprint == peer.fingerprint);
+          final existingIndex = state.indexWhere(
+            (p) => p.fingerprint == peer.fingerprint,
+          );
           if (existingIndex >= 0) {
             // Update existing peer
             final newState = [...state];
@@ -34,8 +35,9 @@ class DiscoveryNotifier extends StateNotifier<List<DiscoveredPeer>> {
           }
         } else if (event is PeerLost) {
           final fingerprint = event.fingerprint;
-          state =
-              state.where((peer) => peer.fingerprint != fingerprint).toList();
+          state = state
+              .where((peer) => peer.fingerprint != fingerprint)
+              .toList();
         }
       });
     } catch (e) {
@@ -53,16 +55,16 @@ class DiscoveryNotifier extends StateNotifier<List<DiscoveredPeer>> {
 
 final discoveryProvider =
     StateNotifierProvider<DiscoveryNotifier, List<DiscoveredPeer>>((ref) {
-  final notifier = DiscoveryNotifier();
+      final notifier = DiscoveryNotifier();
 
-  ref.listen<AsyncValue<SwiftWaveNative>>(swiftWaveRuntimeProvider, (
-    previous,
-    next,
-  ) {
-    if (next.hasValue && next.value != null) {
-      notifier.attach(next.value!);
-    }
-  }, fireImmediately: true);
+      ref.listen<AsyncValue<SwiftWaveNative>>(swiftWaveRuntimeProvider, (
+        previous,
+        next,
+      ) {
+        if (next.hasValue && next.value != null) {
+          notifier.attach(next.value!);
+        }
+      }, fireImmediately: true);
 
-  return notifier;
-});
+      return notifier;
+    });

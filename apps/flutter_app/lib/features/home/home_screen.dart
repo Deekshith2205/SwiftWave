@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
-import '../../../core/models/device.dart';
 import '../../../core/models/discovery.dart';
 import '../../../core/models/transfer.dart';
 import '../../../core/models/authenticated_peer.dart';

@@ -57,7 +57,7 @@ void main() {
     expect(find.text('Authenticated Devices'), findsOneWidget);
     expect(find.text('My Trusted PC'), findsOneWidget);
     expect(find.textContaining('Authenticated • 12345678'), findsOneWidget);
-    
+
     // Verify Discovered Peers
     expect(find.text('Nearby Devices'), findsOneWidget);
     expect(find.text('A Discovered Phone'), findsOneWidget);

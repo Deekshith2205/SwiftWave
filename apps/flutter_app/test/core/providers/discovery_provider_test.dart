@@ -48,7 +48,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -79,7 +81,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -109,7 +113,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -149,7 +155,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -179,7 +187,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -215,7 +225,9 @@ void main() {
     final mockNative = MockSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(mockNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(mockNative),
+        ),
       ],
     );
     container.listen(discoveryProvider, (_, _) {});
@@ -232,7 +244,9 @@ void main() {
     final degradedNative = DegradedSwiftWaveNative();
     final container = ProviderContainer(
       overrides: [
-        swiftWaveRuntimeProvider.overrideWith((ref) => Future.value(degradedNative))
+        swiftWaveRuntimeProvider.overrideWith(
+          (ref) => Future.value(degradedNative),
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -240,7 +254,7 @@ void main() {
     // This should not crash, it should just fail silently as per the provider implementation
     container.listen(discoveryProvider, (_, _) {});
     await container.read(swiftWaveRuntimeProvider.future);
-    
+
     expect(container.read(discoveryProvider), isEmpty);
   });
 }
